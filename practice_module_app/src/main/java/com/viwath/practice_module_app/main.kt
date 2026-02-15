@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.viwath.practice_module_app.ui.HalfDefaultBottomSheetFullContentWhenHidden
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -22,7 +23,7 @@ fun PracticeModule(){
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        ValentineFlower()
+        HalfDefaultBottomSheetFullContentWhenHidden()
     }
 }
 
