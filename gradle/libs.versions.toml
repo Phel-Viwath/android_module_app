@@ -20,6 +20,7 @@ lifecycle = "2.10.0"
 okhttp = "5.3.2"
 gson = "2.13.2"
 ycharts = "2.1.0"
+runtimeAnnotation = "1.10.3"
 
 
 [libraries]
@@ -65,6 +66,7 @@ androidx-compose-material-icon-extend = { module = "androidx.compose.material:ma
 
 # Y-Charts
 co-yml-ycharts = { module = "co.yml:ycharts", version.ref = "ycharts"}
+androidx-compose-runtime-annotation = { group = "androidx.compose.runtime", name = "runtime-annotation", version.ref = "runtimeAnnotation" }
 
 
 [plugins]

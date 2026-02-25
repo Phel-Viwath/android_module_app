@@ -14,17 +14,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.viwath.practice_module_app.ui.HalfDefaultBottomSheetFullContentWhenHidden
+import com.viwath.practice_module_app.ui.reveal_animation.AppRoot
 import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
 fun PracticeModule(){
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        HalfDefaultBottomSheetFullContentWhenHidden()
-    }
+    AppRoot()
 }
 
 @Composable
@@ -95,10 +91,5 @@ fun ValentineFlower(
 @Preview(showBackground = true)
 @Composable
 fun ValentineFlowerPreview() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        ValentineFlower()
-    }
+   AppRoot()
 }
