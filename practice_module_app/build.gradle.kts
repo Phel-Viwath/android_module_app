@@ -81,4 +81,9 @@ dependencies {
     // Y-Charts
     implementation(libs.co.yml.ycharts)
 
+    //coil
+    implementation(libs.coil.compose)
+    implementation(libs.coil.core)
+    implementation(libs.coil.network)
 }
+

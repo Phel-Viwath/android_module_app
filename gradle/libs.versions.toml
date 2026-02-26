@@ -20,7 +20,8 @@ lifecycle = "2.10.0"
 okhttp = "5.3.2"
 gson = "2.13.2"
 ycharts = "2.1.0"
-runtimeAnnotation = "1.10.3"
+runtimeAnnotation = "1.10.4"
+coils = "3.4.0"
 
 
 [libraries]
@@ -68,6 +69,10 @@ androidx-compose-material-icon-extend = { module = "androidx.compose.material:ma
 co-yml-ycharts = { module = "co.yml:ycharts", version.ref = "ycharts"}
 androidx-compose-runtime-annotation = { group = "androidx.compose.runtime", name = "runtime-annotation", version.ref = "runtimeAnnotation" }
 
+# Coil
+coil-compose = { module = "io.coil-kt.coil3:coil-compose-android", version.ref = "coils" }
+coil-core = { module = "io.coil-kt.coil3:coil-core", version.ref = "coils" }
+coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coils" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

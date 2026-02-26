@@ -1,6 +1,12 @@
 package com.viwath.practice_module_app.ui.reveal_animation
 
+import android.app.Activity
+import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
 import android.view.View
+import android.view.Window
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -10,9 +16,16 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -37,18 +50,65 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.center
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toOffset
+import androidx.core.graphics.createBitmap
 import androidx.core.view.drawToBitmap
+import coil3.compose.AsyncImage
 import com.viwath.practice_module_app.ui.reveal_animation.RevealDirection.Expand
 import com.viwath.practice_module_app.ui.reveal_animation.RevealDirection.Shrink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlin.math.hypot
+
+private fun View.findActivity(): Activity? {
+    var c = context
+    while (c is android.content.ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
+
+private suspend fun View.snapshotSafely(): ImageBitmap? {
+    val activity = findActivity()
+    val window: Window? = activity?.window
+
+    // Prefer PixelCopy on API 26+
+    if (window != null) {
+        val root = window.decorView
+        val bitmap = createBitmap(root.width, root.height)
+
+        val result = suspendCancellableCoroutine<Int> { cont ->
+            PixelCopy.request(
+                window,
+                bitmap,
+                { copyResult -> cont.resume(copyResult) },
+                Handler(Looper.getMainLooper())
+            )
+        }
+
+        if (result == PixelCopy.SUCCESS) return bitmap.asImageBitmap()
+        // else fall through to drawToBitmap fallback
+    }
+
+    // Fallback (may still fail if hardware bitmaps exist)
+    return try {
+        drawToBitmap(config = Bitmap.Config.ARGB_8888).asImageBitmap()
+    } catch (t: Throwable) {
+        null // don't crash; you just won't get the overlay snapshot
+    }
+}
 
 /**
  * Defines the visual behavior of the reveal animation.
@@ -142,7 +202,7 @@ class ThemeRevealState internal constructor(
     ) {
         scope.launch {
             // 1. Capture the current UI state as it looks RIGHT NOW
-            overlay = hostView.drawToBitmap().asImageBitmap()
+            overlay = hostView.snapshotSafely()
 
             this@ThemeRevealState.origin = originInRoot
             this@ThemeRevealState.direction = direction
@@ -242,24 +302,61 @@ private fun rectFromCenterRadius(center: Offset, radius: Float) =
 fun MainScaffold(
     onToggleTheme: (Offset) -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    // Store the position of the "More" icon as a fallback origin
+    var iconOffset by remember { mutableStateOf(Offset.Zero) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("My App") },
+                title = { Text("Telegram Style Reveal") },
                 actions = {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Default.LightMode,
-                        contentDescription = "Toggle theme",
-                        modifier = Modifier.revealClickInRoot { offset ->
-                            onToggleTheme(offset)
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.onGloballyPositioned {
+                                // Get the center of the vertical dots icon
+                                iconOffset = it.localToRoot(it.size.center.toOffset())
+                            }
+                        ) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
                         }
-                    )
+
+                        DropdownMenu(showMenu, { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Toggle Theme") },
+                                onClick = {
+                                    showMenu = false
+                                    // We use the icon's position because the menu item
+                                    // itself is about to be destroyed/dismissed.
+                                    onToggleTheme(iconOffset)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.LightMode, null)
+                                }
+                            )
+                        }
+                    }
                 }
             )
         }
     ){ innerPadding ->
         Box(modifier = Modifier.padding(innerPadding).fillMaxSize()
-            .background(MaterialTheme.colorScheme.background))
+            .background(MaterialTheme.colorScheme.background)){
+
+
+            val link = "https://static.vecteezy.com/system/resources/thumbnails/057/068/323/small_2x/single-fresh-red-strawberry-on-table-green-background-food-fruit-sweet-macro-juicy-plant-image-photo.jpg"
+
+            AsyncImage(
+                model = link,
+                contentDescription = "Strawberry Image",
+                modifier = Modifier.size(200.dp),
+                // Shows while loading
+                // Shows if it fails (like when internet is off)
+                error = rememberVectorPainter(Icons.Default.Warning),
+            )
+
+        }
     }
 }
 
@@ -281,10 +378,19 @@ fun AppRoot() {
                     // Logic: Light to Dark expands from tap, Dark to Light shrinks back
                     val dir = if (goingToDark) Expand else Shrink
 
+                    // Custom spec to balance the speed
+                    val customSpec = ThemeRevealSpec(
+                        // We increase the duration for Shrink to make it feel less 'snappy'
+                        durationMillis = if (dir == Shrink) 600 else 850,
+                        // Use a more natural easing for the shrinking effect
+                        easing = FastOutSlowInEasing
+                    )
+
                     reveal.reveal(
                         hostView = hostView,
                         originInRoot = tapInRoot,
                         direction = dir,
+                        spec = customSpec,
                         swapTheme = { dark = !dark }
                     )
                 }
