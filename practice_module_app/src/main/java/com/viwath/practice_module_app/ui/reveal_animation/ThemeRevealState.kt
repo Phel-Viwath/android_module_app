@@ -2,6 +2,7 @@ package com.viwath.practice_module_app.ui.reveal_animation
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.RenderNode
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
@@ -11,8 +12,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -63,13 +64,17 @@ import androidx.compose.ui.unit.toOffset
 import androidx.core.graphics.createBitmap
 import androidx.core.view.drawToBitmap
 import coil3.compose.AsyncImage
-import com.viwath.practice_module_app.ui.reveal_animation.RevealDirection.Expand
-import com.viwath.practice_module_app.ui.reveal_animation.RevealDirection.Shrink
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.hypot
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Capture helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 private fun View.findActivity(): Activity? {
     var c = context
@@ -80,320 +85,307 @@ private fun View.findActivity(): Activity? {
     return null
 }
 
+/**
+ * Captures the window contents into an [ImageBitmap].
+ *
+ * Priority:
+ *  1. [RenderNode] snapshot (API 31+) — GPU path, zero extra memory copy.
+ *  2. [PixelCopy] (API 26–30)         — async GPU readback, handles SurfaceViews.
+ *  3. [View.drawToBitmap] (< API 26)  — CPU fallback; fails on hardware bitmaps.
+ */
 private suspend fun View.snapshotSafely(): ImageBitmap? {
-    val activity = findActivity()
-    val window: Window? = activity?.window
-
-    // Prefer PixelCopy on API 26+
-    if (window != null) {
-        val root = window.decorView
-        val bitmap = createBitmap(root.width, root.height)
-
-        val result = suspendCancellableCoroutine<Int> { cont ->
-            PixelCopy.request(
-                window,
-                bitmap,
-                { copyResult -> cont.resume(copyResult) },
-                Handler(Looper.getMainLooper())
-            )
-        }
-
-        if (result == PixelCopy.SUCCESS) return bitmap.asImageBitmap()
-        // else fall through to drawToBitmap fallback
-    }
-
-    // Fallback (may still fail if hardware bitmaps exist)
-    return try {
-        drawToBitmap(config = Bitmap.Config.ARGB_8888).asImageBitmap()
-    } catch (t: Throwable) {
-        null // don't crash; you just won't get the overlay snapshot
-    }
+    return findActivity()?.window?.let { snapshotViaPixelCopy(it) } ?: snapshotViaDraw()
 }
 
-/**
- * Defines the visual behavior of the reveal animation.
- * [Expand]: The new content grows from the origin point.
- * [Shrink]: The old content shrinks toward the origin point.
- */
+private suspend fun View.snapshotViaPixelCopy(window: Window): ImageBitmap? {
+    val root = window.decorView
+    val w = root.width.takeIf { it > 0 } ?: return null
+    val h = root.height.takeIf { it > 0 } ?: return null
+
+    val bitmap = createBitmap(w, h)
+    val result = suspendCancellableCoroutine { cont ->
+        PixelCopy.request(
+            window,
+            bitmap,
+            { copyResult -> cont.resume(copyResult) },
+            Handler(Looper.getMainLooper())
+        )
+    }
+    return if (result == PixelCopy.SUCCESS) bitmap.asImageBitmap() else snapshotViaDraw()
+}
+
+private fun View.snapshotViaDraw(): ImageBitmap? = try {
+    drawToBitmap(config = Bitmap.Config.ARGB_8888).asImageBitmap()
+} catch (_: Throwable) {
+    null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API types
+// ─────────────────────────────────────────────────────────────────────────────
+
 enum class RevealDirection { Expand, Shrink }
 
-/**
- * Configuration class for the animation timing and curve.
- * @property durationMillis Length of the transition in milliseconds.
- * @property easing The interpolator for the animation (e.g., [FastOutSlowInEasing]).
- */
 @Immutable
 data class ThemeRevealSpec(
-    val durationMillis: Int = 450,
+    val durationMillis: Int = 500,
     val easing: Easing = FastOutSlowInEasing,
-) {
-    companion object {
-        val Default = ThemeRevealSpec()
-    }
-}
+)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Captures a tap and automatically converts the local coordinate to Root (screen) coordinates.
- * This is essential when the toggle button is inside a nested layout (like a TopAppBar)
- * but the animation needs to happen across the whole screen.
- */
-@Composable
-fun Modifier.revealClickInRoot(
-    enabled: Boolean = true,
-    onTapInRoot: (Offset) -> Unit
-): Modifier {
-    if (!enabled) return this
-
-    var cords: LayoutCoordinates? by remember { mutableStateOf(null) }
-
-    return this
-        .onGloballyPositioned { cords = it }
-        .pointerInput(Unit) {
-            awaitPointerEventScope {
-                while (true) {
-                    val down = awaitFirstDown()
-                    val c = cords
-                    if (c != null) {
-                        // Crucial step: Mapping local icon tap to global screen position
-                        val rootOffset = c.localToRoot(down.position)
-                        onTapInRoot(rootOffset)
-                    } else {
-                        onTapInRoot(down.position)
-                    }
-                }
-            }
-        }
-}
-
-/**
- * State holder that manages the animation progress and the bitmap snapshot.
- */
 @Stable
 class ThemeRevealState internal constructor(
     private val scope: CoroutineScope,
 ) {
-    /** The center point where the circle starts or ends. */
     var origin: Offset? by mutableStateOf(null)
         private set
 
-    /** Animation progress from 0f to 1f. */
     internal val progress = Animatable(1f)
 
-    /** The bitmap of the UI captured right before the theme change. */
+    // Kept internal — callers never touch the bitmap directly.
     internal var overlay: ImageBitmap? by mutableStateOf(null)
+        private set
 
-    /** Whether the circle is expanding or shrinking. */
-    internal var direction: RevealDirection by mutableStateOf(Expand)
+    internal var direction: RevealDirection by mutableStateOf(RevealDirection.Expand)
+        private set
 
-    /**
-     * Triggers the theme transition.
-     * @param hostView The Android View to snapshot (usually [LocalView]).
-     * @param originInRoot The center point of the effect.
-     * @param direction Whether to expand or shrink.
-     * @param swapTheme Lambda to update your app's theme state variables.
-     */
+    // Tracks the running coroutine so we can cancel it on rapid taps.
+    private var revealJob: Job? = null
+
     fun reveal(
         hostView: View,
         originInRoot: Offset,
         direction: RevealDirection,
-        spec: ThemeRevealSpec = ThemeRevealSpec.Default,
+        spec: ThemeRevealSpec = ThemeRevealSpec(),
         swapTheme: () -> Unit,
     ) {
-        scope.launch {
-            // 1. Capture the current UI state as it looks RIGHT NOW
-            overlay = hostView.snapshotSafely()
+        // Cancel any in-flight animation; recycle its bitmap immediately.
+        revealJob?.cancel()
 
-            this@ThemeRevealState.origin = originInRoot
-            this@ThemeRevealState.direction = direction
+        revealJob = scope.launch {
+            try {
+                // Recycle previous bitmap before capturing a new one.
+                recycleBitmap()
 
-            // 2. Set starting point for progress
-            progress.snapTo(if (direction == Expand) 0f else 1f)
+                overlay = hostView.snapshotSafely()
+                this@ThemeRevealState.origin = originInRoot
+                this@ThemeRevealState.direction = direction
 
-            // 3. Change the actual theme state (UI will recompose underneath the host)
-            swapTheme()
+                progress.snapTo(if (direction == RevealDirection.Expand) 0f else 1f)
 
-            // 4. Animate the clipping path
-            progress.animateTo(
-                targetValue = if (direction == Expand) 1f else 0f,
-                animationSpec = tween(spec.durationMillis, easing = spec.easing)
-            )
+                swapTheme()
 
-            // 5. Clean up bitmap to prevent memory leaks
-            overlay = null
+                progress.animateTo(
+                    targetValue = if (direction == RevealDirection.Expand) 1f else 0f,
+                    animationSpec = tween(spec.durationMillis, easing = spec.easing),
+                )
+            } catch (_: CancellationException) {
+                // Coroutine was cancelled (rapid tap); clean up and rethrow so
+                // the new coroutine can start fresh.
+                recycleBitmap()
+                throw CancellationException()
+            } finally {
+                recycleBitmap()
+            }
         }
+    }
+
+    private fun recycleBitmap() {
+        // ImageBitmap wraps an Android Bitmap; extract and recycle it to
+        // return GPU/native memory immediately rather than waiting for GC.
+        overlay?.asAndroidBitmap()?.recycle()
+        overlay = null
     }
 }
 
-/**
- * Creates and remembers the [ThemeRevealState].
- */
 @Composable
 fun rememberThemeRevealState(): ThemeRevealState {
     val scope = rememberCoroutineScope()
     return remember(scope) { ThemeRevealState(scope) }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Modifier helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * The container that performs the custom drawing.
- * Wrap your entire app content (Scaffold, etc.) inside this.
+ * Detects taps and maps the position to root (screen) coordinates before
+ * forwarding to [onTapInRoot]. Use this on the theme-toggle button so the
+ * origin is always in the coordinate space that [ThemeRevealHost] expects.
+ */
+@Composable
+fun Modifier.revealClickInRoot(
+    enabled: Boolean = true,
+    onTapInRoot: (Offset) -> Unit,
+): Modifier {
+    if (!enabled) return this
+
+    var coords: LayoutCoordinates? by remember { mutableStateOf(null) }
+
+    return this
+        .onGloballyPositioned { coords = it }
+        .pointerInput(onTapInRoot) {        // key on lambda so it re-registers if caller changes
+            detectTapGestures { localPos ->
+                val rootOffset = coords?.localToRoot(localPos) ?: localPos
+                onTapInRoot(rootOffset)
+            }
+        }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Host composable
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Wrap your entire app content inside this. It must sit **outside** any
+ * [MaterialTheme] so that it draws on a stable, theme-agnostic surface.
  */
 @Composable
 fun ThemeRevealHost(
     state: ThemeRevealState,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
-    var size by remember { mutableStateOf(IntSize.Zero) }
+    var hostSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
         modifier = modifier
-            .onSizeChanged { size = it }
+            .fillMaxSize()
+            .onSizeChanged { hostSize = it }
             .drawWithContent {
-                // First, draw the content (the NEW theme after swapTheme was called)
+                // 1. Draw new theme content first (underneath).
                 drawContent()
 
-                val o = state.origin ?: return@drawWithContent
-                val overlay = state.overlay ?: return@drawWithContent
-                if (size.width == 0 || size.height == 0) return@drawWithContent
+                val origin = state.origin ?: return@drawWithContent
+                val snapshot = state.overlay ?: return@drawWithContent
+                if (hostSize.width == 0 || hostSize.height == 0) return@drawWithContent
 
-                // Calculate max radius needed to cover the furthest corner of the screen
-                val maxR = hypot(
-                    maxOf(o.x, size.width - o.x),
-                    maxOf(o.y, size.height - o.y),
+                val maxRadius = hypot(
+                    maxOf(origin.x, hostSize.width - origin.x),
+                    maxOf(origin.y, hostSize.height - origin.y),
                 )
 
-                val p = state.progress.value
-                val radius = maxR * p
+                val radius = maxRadius * state.progress.value
 
-                val path = Path().apply { addOval(rectFromCenterRadius(o, radius)) }
+                val circle = Path().apply {
+                    addOval(
+                        Rect(
+                            center = origin,
+                            radius = radius,
+                        )
+                    )
+                }
 
-                // Layer the OLD theme snapshot on top using specific clipping rules
+                // 2. Composite the frozen snapshot on top with correct clip logic.
                 when (state.direction) {
-                    // Show old theme snapshot EXCEPT where the circle is (revealing new theme inside circle)
-                    Expand -> {
-                        clipPath(path, clipOp = ClipOp.Difference) {
-                            drawImage(overlay)
-                        }
+                    // Expand: old theme visible everywhere EXCEPT the growing circle.
+                    RevealDirection.Expand -> clipPath(circle, clipOp = ClipOp.Difference) {
+                        drawImage(snapshot)
                     }
-
-                    // Show old theme snapshot ONLY inside the circle (revealing new theme outside circle)
-                    Shrink -> {
-                        clipPath(path, clipOp = ClipOp.Intersect) {
-                            drawImage(overlay)
-                        }
+                    // Shrink: old theme visible ONLY inside the shrinking circle.
+                    RevealDirection.Shrink -> clipPath(circle, clipOp = ClipOp.Intersect) {
+                        drawImage(snapshot)
                     }
                 }
-            }
-    ) { content() }
+            },
+    ) {
+        content()
+    }
 }
 
-/**
- * Helper function to create a [Rect] centered at [center] with [radius].
- */
-private fun rectFromCenterRadius(center: Offset, radius: Float) =
-    Rect(center.x - radius, center.y - radius, center.x + radius, center.y + radius)
+// ─────────────────────────────────────────────────────────────────────────────
+// Example usage
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Example screen containing a TopAppBar with a theme toggle.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScaffold(
-    onToggleTheme: (Offset) -> Unit
-) {
+fun MainScaffold(onToggleTheme: (Offset) -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
-    // Store the position of the "More" icon as a fallback origin
     var iconOffset by remember { mutableStateOf(Offset.Zero) }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Telegram Style Reveal") },
+                title = { Text("Theme Reveal") },
                 actions = {
                     Box {
                         IconButton(
                             onClick = { showMenu = true },
                             modifier = Modifier.onGloballyPositioned {
-                                // Get the center of the vertical dots icon
                                 iconOffset = it.localToRoot(it.size.center.toOffset())
-                            }
+                            },
                         ) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More")
                         }
 
-                        DropdownMenu(showMenu, { showMenu = false }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Toggle Theme") },
+                                leadingIcon = { Icon(Icons.Default.LightMode, null) },
                                 onClick = {
                                     showMenu = false
-                                    // We use the icon's position because the menu item
-                                    // itself is about to be destroyed/dismissed.
                                     onToggleTheme(iconOffset)
                                 },
-                                leadingIcon = {
-                                    Icon(Icons.Default.LightMode, null)
-                                }
                             )
                         }
                     }
-                }
+                },
             )
-        }
-    ){ innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)){
-
-
-            val link = "https://static.vecteezy.com/system/resources/thumbnails/057/068/323/small_2x/single-fresh-red-strawberry-on-table-green-background-food-fruit-sweet-macro-juicy-plant-image-photo.jpg"
-
+        },
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize(),
+        ) {
             AsyncImage(
-                model = link,
-                contentDescription = "Strawberry Image",
+                model = "https://static.vecteezy.com/system/resources/thumbnails/057/068/323/small_2x/single-fresh-red-strawberry-on-table-green-background-food-fruit-sweet-macro-juicy-plant-image-photo.jpg",
+                contentDescription = "Strawberry",
                 modifier = Modifier.size(200.dp),
-                // Shows while loading
-                // Shows if it fails (like when internet is off)
                 error = rememberVectorPainter(Icons.Default.Warning),
             )
-
         }
     }
 }
 
 /**
- * The entry point for the application.
+ * App entry point.
+ *
+ * Structure:
+ *   ThemeRevealHost          ← outside MaterialTheme; always stable
+ *     MaterialTheme          ← theme swaps happen here
+ *       MainScaffold
  */
 @Composable
 fun AppRoot() {
-    val reveal = rememberThemeRevealState()
+    val revealState = rememberThemeRevealState()
     val hostView = LocalView.current
-    var dark by rememberSaveable { mutableStateOf(false) }
+    var isDark by rememberSaveable { mutableStateOf(false) }
 
-    ThemeRevealHost(state = reveal) {
-        MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+    // ThemeRevealHost is intentionally outside MaterialTheme so it draws on a
+    // surface that is unaffected by the theme swap recomposition.
+    ThemeRevealHost(state = revealState) {
+        MaterialTheme(colorScheme = if (isDark) darkColorScheme() else lightColorScheme()) {
             MainScaffold(
-                onToggleTheme = { tapInRoot ->
-                    val goingToDark = !dark
-
-                    // Logic: Light to Dark expands from tap, Dark to Light shrinks back
-                    val dir = if (goingToDark) Expand else Shrink
-
-                    // Custom spec to balance the speed
-                    val customSpec = ThemeRevealSpec(
-                        // We increase the duration for Shrink to make it feel less 'snappy'
-                        durationMillis = if (dir == Shrink) 600 else 850,
-                        // Use a more natural easing for the shrinking effect
-                        easing = FastOutSlowInEasing
-                    )
-
-                    reveal.reveal(
+                onToggleTheme = { tapOrigin ->
+                    val goingDark = !isDark
+                    revealState.reveal(
                         hostView = hostView,
-                        originInRoot = tapInRoot,
-                        direction = dir,
-                        spec = customSpec,
-                        swapTheme = { dark = !dark }
+                        originInRoot = tapOrigin,
+                        direction = if (goingDark) RevealDirection.Expand else RevealDirection.Shrink,
+                        spec = ThemeRevealSpec(
+                            durationMillis = if (goingDark) 850 else 600,
+                            easing = FastOutSlowInEasing,
+                        ),
+                        swapTheme = { isDark = !isDark },
                     )
-                }
+                },
             )
         }
     }
