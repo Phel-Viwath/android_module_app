@@ -143,6 +143,9 @@ class ThemeRevealState internal constructor(
     var origin: Offset? by mutableStateOf(null)
         private set
 
+    var isAnimating by mutableStateOf(false)
+        private set
+
     internal val progress = Animatable(1f)
 
     // Kept internal — callers never touch the bitmap directly.
@@ -165,8 +168,11 @@ class ThemeRevealState internal constructor(
         // Cancel any in-flight animation; recycle its bitmap immediately.
         revealJob?.cancel()
 
+        if (isAnimating) return
+
         revealJob = scope.launch {
             try {
+                isAnimating = true
                 // Recycle previous bitmap before capturing a new one.
                 recycleBitmap()
 
@@ -189,6 +195,7 @@ class ThemeRevealState internal constructor(
                 throw CancellationException()
             } finally {
                 recycleBitmap()
+                isAnimating = false
             }
         }
     }
@@ -228,9 +235,12 @@ fun Modifier.revealClickInRoot(
     return this
         .onGloballyPositioned { coords = it }
         .pointerInput(onTapInRoot) {        // key on lambda so it re-registers if caller changes
-            detectTapGestures { localPos ->
-                val rootOffset = coords?.localToRoot(localPos) ?: localPos
-                onTapInRoot(rootOffset)
+//            detectTapGestures { localPos ->
+//                val rootOffset = coords?.localToRoot(localPos) ?: localPos
+//                onTapInRoot(rootOffset)
+//            }
+            detectTapGestures {
+                onTapInRoot(it)
             }
         }
 }
@@ -302,7 +312,10 @@ fun ThemeRevealHost(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScaffold(onToggleTheme: (Offset) -> Unit) {
+fun MainScaffold(
+    enabled: Boolean = true,
+    onToggleTheme: (Offset) -> Unit
+) {
     var showMenu by remember { mutableStateOf(false) }
     var iconOffset by remember { mutableStateOf(Offset.Zero) }
 
@@ -311,29 +324,40 @@ fun MainScaffold(onToggleTheme: (Offset) -> Unit) {
             TopAppBar(
                 title = { Text("Theme Reveal") },
                 actions = {
-                    Box {
+                    Box {                    
                         IconButton(
+                            enabled = enabled,
                             onClick = { showMenu = true },
-                            modifier = Modifier.onGloballyPositioned {
-                                iconOffset = it.localToRoot(it.size.center.toOffset())
-                            },
+//                            modifier = Modifier.revealClickInRoot {
+//                                //iconOffset = it.localToRoot(it.size.center.toOffset())
+//                                onToggleTheme(it)
+//                            },
                         ) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More")
-                        }
-
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Toggle Theme") },
-                                leadingIcon = { Icon(Icons.Default.LightMode, null) },
-                                onClick = {
-                                    showMenu = false
-                                    onToggleTheme(iconOffset)
-                                },
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More",
+                                modifier = Modifier
+                                    .revealClickInRoot {
+                                        //iconOffset = it.localToRoot(it.size.center.toOffset())
+                                        onToggleTheme(it)
+                                    }
                             )
                         }
+
+//                        DropdownMenu(
+//                            expanded = showMenu,
+//                            onDismissRequest = { showMenu = false },
+//                        ) {
+//                            DropdownMenuItem(
+//                                text = { Text("Toggle Theme") },
+//                                enabled = enabled,
+//                                leadingIcon = { Icon(Icons.Default.LightMode, null) },
+//                                onClick = {
+//                                    showMenu = false
+//                                    onToggleTheme(iconOffset)
+//                                },
+//                            )
+//                        }
                     }
                 },
             )
@@ -373,6 +397,7 @@ fun AppRoot() {
     ThemeRevealHost(state = revealState) {
         MaterialTheme(colorScheme = if (isDark) darkColorScheme() else lightColorScheme()) {
             MainScaffold(
+                enabled = !revealState.isAnimating,
                 onToggleTheme = { tapOrigin ->
                     val goingDark = !isDark
                     revealState.reveal(
