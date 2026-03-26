@@ -5,9 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.viwath.compose_ui_practice.ui.DragDropScreen
-import com.viwath.compose_ui_practice.ui.WidgetDashboardScreen
 import com.viwath.compose_ui_practice.ui.theme.Compose_ui_practiceTheme
-import com.viwath.practice_module_app.PracticeModule
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,6 +17,7 @@ class MainActivity : ComponentActivity() {
                 //PracticeModule()
                 DragDropScreen()
                 //WidgetDashboardScreen()
+                //MixedWidgetDashboard()
             }
         }
     }
