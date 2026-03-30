@@ -2,6 +2,9 @@ package com.viwath.compose_ui_practice.ui.swipe
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,96 +19,104 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Demo screen – shows SwipeDownPanel in action
+//  Entry point — use this in setContent { }
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun SwipeDownPanelDemo() {
-    val panelState = rememberSwipeDownPanelState()
-    val scope      = rememberCoroutineScope()
-
     SwipeDownPanel(
-        state        = panelState,
-        panelHeight  = 380.dp,
-        panelContent = { PanelItems() }         // ← drop your items here
+        panelHeight  = 360.dp,
+        panelContent = { PanelContent() },
     ) {
-        MainScreenContent(                       // ← your real screen
-            onSwipeHintTap = { scope.launch { panelState.expand() } }
-        )
+        MainScreen()
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Panel items  –  swap / extend these freely
+//  Panel content — everything that appears inside the drop-down
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ColumnScope.PanelItems() {
-    Text(
-        text       = "Quick Controls",
-        style      = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color      = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun ColumnScope.PanelContent() {
 
-    Spacer(Modifier.height(4.dp))
-
-    // Quick-toggle row
+    // ── Quick toggle row ──────────────────────────────────────────────────────
     Row(
-        modifier            = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
-        QuickToggle(icon = Icons.Default.Wifi,      label = "Wi-Fi")
-        QuickToggle(icon = Icons.Default.Bluetooth, label = "Bluetooth")
-        QuickToggle(icon = Icons.Default.AirplanemodeActive, label = "Airplane")
-        QuickToggle(icon = Icons.Default.Notifications, label = "Do Not Disturb", initialOn = false)
+        QuickToggle(Icons.Default.Wifi,               "Wi-Fi",    activeColor = Color(0xFF3B82F6))
+        QuickToggle(Icons.Default.Bluetooth,          "Bluetooth",activeColor = Color(0xFF8B5CF6))
+        QuickToggle(Icons.Default.AirplanemodeActive, "Airplane", activeColor = Color(0xFFF59E0B), on = false)
+        QuickToggle(Icons.Default.DoNotDisturb,       "Silent",   activeColor = Color(0xFFEF4444), on = false)
     }
 
-    Spacer(Modifier.height(8.dp))
-    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-    Spacer(Modifier.height(8.dp))
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 8.dp),
+        color    = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+    )
 
-    // Brightness slider
-    BrightnessSlider()
+    // ── Brightness ───────────────────────────────────────────────────────────
+    PanelSlider(
+        icon  = Icons.Default.LightMode,
+        label = "Brightness",
+        init  = 0.7f,
+        color = Color(0xFFF59E0B),
+    )
 
-    Spacer(Modifier.height(8.dp))
+    // ── Volume ────────────────────────────────────────────────────────────────
+    PanelSlider(
+        icon  = Icons.Default.VolumeUp,
+        label = "Volume",
+        init  = 0.5f,
+        color = Color(0xFF3B82F6),
+    )
 
-    // Media card
-    NowPlayingCard()
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 8.dp),
+        color    = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+    )
+
+    // ── Now playing ───────────────────────────────────────────────────────────
+    NowPlayingRow()
 }
 
-// ─── Quick toggle tile ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  Reusable panel widgets
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun QuickToggle(
-    icon:      ImageVector,
-    label:     String,
-    initialOn: Boolean = true,
+    icon:        ImageVector,
+    label:       String,
+    activeColor: Color   = MaterialTheme.colorScheme.primary,
+    on:          Boolean = true,
 ) {
-    var on by remember { mutableStateOf(initialOn) }
-    val bg = if (on) MaterialTheme.colorScheme.primaryContainer
-    else    MaterialTheme.colorScheme.surface
+    var enabled by remember { mutableStateOf(on) }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        IconButton(
-            onClick  = { on = !on },
+        Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(bg)
+                .background(
+                    if (enabled) activeColor.copy(alpha = 0.15f)
+                    else         MaterialTheme.colorScheme.surfaceVariant
+                ),
         ) {
-            Icon(
-                imageVector        = icon,
-                contentDescription = label,
-                tint               = if (on) MaterialTheme.colorScheme.primary
-                else    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
+            IconButton(onClick = { enabled = !enabled }) {
+                Icon(
+                    imageVector        = icon,
+                    contentDescription = label,
+                    tint               = if (enabled) activeColor
+                    else         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                )
+            }
         }
         Text(
             text  = label,
@@ -115,110 +126,217 @@ fun QuickToggle(
     }
 }
 
-// ─── Brightness slider ───────────────────────────────────────────────────────
-
 @Composable
-fun BrightnessSlider() {
-    var brightness by remember { mutableFloatStateOf(0.65f) }
+fun PanelSlider(
+    icon:  ImageVector,
+    label: String,
+    init:  Float,
+    color: Color,
+) {
+    var value by remember { mutableFloatStateOf(init) }
+
     Row(
-        modifier     = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier              = Modifier.fillMaxWidth(),
     ) {
         Icon(
-            imageVector        = Icons.Default.BrightnessLow,
-            contentDescription = null,
-            tint               = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier           = Modifier.size(20.dp)
+            imageVector        = icon,
+            contentDescription = label,
+            tint               = color,
+            modifier           = Modifier.size(20.dp),
         )
         Slider(
-            value         = brightness,
-            onValueChange = { brightness = it },
+            value         = value,
+            onValueChange = { value = it },
             modifier      = Modifier.weight(1f),
-        )
-        Icon(
-            imageVector        = Icons.Default.BrightnessHigh,
-            contentDescription = null,
-            tint               = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier           = Modifier.size(20.dp)
+            colors        = SliderDefaults.colors(
+                thumbColor         = color,
+                activeTrackColor   = color,
+                inactiveTrackColor = color.copy(alpha = 0.2f),
+            ),
         )
     }
 }
 
-// ─── Now playing card ────────────────────────────────────────────────────────
-
 @Composable
-fun NowPlayingCard() {
-    Surface(
-        shape            = RoundedCornerShape(16.dp),
-        color            = MaterialTheme.colorScheme.secondaryContainer,
-        modifier         = Modifier.fillMaxWidth()
+fun NowPlayingRow() {
+    var playing by remember { mutableStateOf(true) }
+
+    Row(
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier              = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            modifier             = Modifier.padding(12.dp),
-            verticalAlignment    = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7)))
-                    )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7))))
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Midnight City",
+                style      = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Midnight City",
-                    style      = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color      = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                Text(
-                    "M83",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                )
-            }
-            Row {
-                IconButton(onClick = {}) {
-                    Icon(Icons.Default.SkipPrevious, null)
-                }
-                IconButton(onClick = {}) {
-                    Icon(Icons.Default.PlayArrow, null)
-                }
-                IconButton(onClick = {}) {
-                    Icon(Icons.Default.SkipNext, null)
-                }
-            }
+            Text(
+                "M83 · Hurry Up, We're Dreaming",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = { playing = !playing }) {
+            Icon(
+                imageVector        = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (playing) "Pause" else "Play",
+                tint               = MaterialTheme.colorScheme.primary,
+            )
+        }
+        IconButton(onClick = {}) {
+            Icon(Icons.Default.SkipNext, contentDescription = "Next")
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Placeholder main screen
+//  Main screen — replace with your real HomeScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
+private data class FeedItem(
+    val title:    String,
+    val subtitle: String,
+    val icon:     ImageVector,
+)
+
+private val feedItems = listOf(
+    FeedItem("Morning Standup",   "9:00 AM · Room 3B",           Icons.Default.Groups),
+    FeedItem("Design Review",     "11:30 AM · Figma link ready", Icons.Default.DesignServices),
+    FeedItem("Lunch with Sokha",  "12:30 PM · Russian Market",   Icons.Default.Restaurant),
+    FeedItem("Sprint Planning",   "2:00 PM · Zoom",              Icons.Default.EventNote),
+    FeedItem("Code Review: Auth", "4:00 PM · PR #142",           Icons.Default.Code),
+    FeedItem("Team Retro",        "5:30 PM · Miro board",        Icons.Default.Autorenew),
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreenContent(onSwipeHintTap: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Swipe down from the top", fontSize = 18.sp, fontWeight = FontWeight.Medium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "or",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+fun MainScreen() {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            "Good morning 👋",
+                            fontSize = 13.sp,
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text("Today's Schedule", fontWeight = FontWeight.Bold)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {}) {
+                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7)))
+                            ),
+                    ) {
+                        Text("V", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                },
             )
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onSwipeHintTap) {
-                Text("Open Panel")
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier            = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+            contentPadding      = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                // Swipe hint banner
+                Surface(
+                    shape    = RoundedCornerShape(16.dp),
+                    color    = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier              = Modifier.padding(16.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.SwipeDown,
+                            contentDescription = null,
+                            tint               = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Swipe down from the top to open quick controls",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
             }
+
+            items(feedItems) { item ->
+                FeedCard(item)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedCard(item: FeedItem) {
+    Surface(
+        shape          = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp,
+        modifier       = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier              = Modifier.padding(16.dp),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+            ) {
+                Icon(
+                    item.icon,
+                    contentDescription = null,
+                    tint               = MaterialTheme.colorScheme.secondary,
+                    modifier           = Modifier.size(22.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    item.title,
+                    style      = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    item.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            )
         }
     }
 }

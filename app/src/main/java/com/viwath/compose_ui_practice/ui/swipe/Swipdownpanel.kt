@@ -5,9 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -32,8 +31,7 @@ class SwipeDownPanelState {
     var progress by mutableFloatStateOf(0f)
         internal set
 
-    val isExpanded: Boolean get() = progress >= 1f
-    val isVisible:  Boolean get() = progress > 0f
+    val isVisible: Boolean get() = progress > 0f
 
     // expose for your ViewModel / LaunchedEffect if needed
     suspend fun expand(spec: AnimationSpec<Float> = panelSpring()) {
@@ -52,6 +50,10 @@ private fun panelSpring() = spring<Float>(
     dampingRatio = Spring.DampingRatioMediumBouncy,
     stiffness    = Spring.StiffnessMedium
 )
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SwipeDownPanel  –  wrap your screen content with this
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * A container that slides in from the top when the user swipes down on [screenContent],
@@ -83,16 +85,14 @@ private fun panelSpring() = spring<Float>(
  */
 @Composable
 fun SwipeDownPanel(
-    state:           SwipeDownPanelState = rememberSwipeDownPanelState(),
-    panelHeight:     Dp  = 340.dp,
-    swipeThreshold:  Dp  = 80.dp,
-    dimColor:        Color = Color.Black.copy(alpha = 0.45f),
-    panelContent:    @Composable ColumnScope.() -> Unit,
-    screenContent:   @Composable () -> Unit,
+    state:         SwipeDownPanelState = rememberSwipeDownPanelState(),
+    panelHeight:   Dp    = 340.dp,
+    dimColor:      Color = Color.Black.copy(alpha = 0.45f),
+    panelContent:  @Composable ColumnScope.() -> Unit,
+    screenContent: @Composable () -> Unit,
 ) {
     val density       = LocalDensity.current
     val panelHeightPx = with(density) { panelHeight.toPx() }
-    val thresholdPx   = with(density) { swipeThreshold.toPx() }
     val scope         = rememberCoroutineScope()
 
     // How many px the panel has travelled downward
@@ -109,10 +109,8 @@ fun SwipeDownPanel(
                     detectVerticalDragGestures(
                         onDragStart = { dragAccum = 0f },
                         onDragEnd   = {
-                            scope.launch {
-                                val snap = dragAccum > thresholdPx
-                                if (snap) state.expand() else state.collapse()
-                            }
+                            // Always auto-hide when finger lifts
+                            scope.launch { state.collapse() }
                             dragAccum = 0f
                         },
                         onDragCancel = {
@@ -137,18 +135,12 @@ fun SwipeDownPanel(
             screenContent()
         }
 
-        // ── 2. Scrim (tap to close) ───────────────────────────────────────
+        // ── 2. Scrim (dim only, no click — swipe-only interaction) ───────
         if (state.isVisible) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(dimColor.copy(alpha = dimColor.alpha * state.progress))
-                    .clickable(
-                        indication          = null,
-                        interactionSource   = remember { MutableInteractionSource() }
-                    ) {
-                        scope.launch { state.collapse() }
-                    }
             )
         }
 
@@ -165,10 +157,8 @@ fun SwipeDownPanel(
                     detectVerticalDragGestures(
                         onDragStart  = { dragAccum = 0f },
                         onDragEnd    = {
-                            scope.launch {
-                                if (dragAccum < -thresholdPx) state.collapse()
-                                else state.expand()
-                            }
+                            // Always auto-hide when finger lifts
+                            scope.launch { state.collapse() }
                             dragAccum = 0f
                         },
                         onDragCancel = {
@@ -214,5 +204,5 @@ fun SwipeDownPanel(
 }
 
 // Helper: convert px Float → Dp without needing a Composable receiver
-private fun Float.toDp(density: androidx.compose.ui.unit.Density): Dp =
+private fun Float.toDp(density: Density): Dp =
     with(density) { this@toDp.toDp() }
