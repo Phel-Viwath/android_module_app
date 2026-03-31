@@ -62,8 +62,8 @@ fun SwipeableDrawerScreen(
         Animatable(
             when (drawerState) {
                 0.0f -> -screenWidth.value
-                -1.0f -> screenWidth.value - drawerWidth.value
-                else -> -(screenWidth.value - -(drawerWidth.value * drawerState))
+                -1.0f -> 0f
+                else -> -screenWidth.value + (drawerWidth.value * abs(drawerState))
             }
         )
     }
@@ -97,7 +97,7 @@ fun SwipeableDrawerScreen(
             offsetLeftDrawerX.animateTo(
                 when (drawerState) {
                     -1.0f -> 0f
-                    else -> -(screenWidth.value - -(drawerWidth.value * drawerState))
+                    else -> -screenWidth.value + (drawerWidth.value * abs(drawerState))
                 },
                 tween(300),
             )
@@ -105,12 +105,12 @@ fun SwipeableDrawerScreen(
     }
 
     LaunchedEffect(offsetLeftDrawerX.value) {
-        val drawerStateTarget = -((offsetLeftDrawerX.value / screenWidth.value) + 1)
+        val drawerStateTarget = -((screenWidth.value + offsetLeftDrawerX.value) / drawerWidth.value)
         onDrawerStateChanged(drawerStateTarget)
     }
 
     LaunchedEffect(offsetRightDrawerX.value) {
-        val drawerStateTarget = -((offsetRightDrawerX.value / screenWidth.value))
+        val drawerStateTarget = (screenWidth.value - offsetRightDrawerX.value) / drawerWidth.value
         onDrawerStateChanged(drawerStateTarget)
     }
 
@@ -161,7 +161,7 @@ fun SwipeableDrawerScreen(
                                 val visibleFraction =
                                     (screenWidth.value - offsetRightDrawerX.value) / drawerWidth.value
                                 val visibleLeftDrawerFraction =
-                                    -((screenWidth.value + offsetLeftDrawerX.value) / drawerWidth.value)
+                                    (screenWidth.value + offsetLeftDrawerX.value) / drawerWidth.value
 
                                 if (visibleFraction > 0) {
                                     val target = when {
@@ -188,27 +188,28 @@ fun SwipeableDrawerScreen(
                                     offsetRightDrawerX.animateTo(target, tween(300))
                                 }
 
-                                if (visibleLeftDrawerFraction < 0) {
+                                if (visibleLeftDrawerFraction > 0) {
                                     val target = when {
-                                        visibleLeftDrawerFraction <= -0.3 && !wasOpen.value -> {
+                                        visibleLeftDrawerFraction >= 0.3 && !wasOpen.value -> {
                                             // If 30% or more of the drawer is visible, snap it open
-                                            screenWidth.value - drawerWidth.value
+                                            0f
                                         }
 
-                                        visibleLeftDrawerFraction > -0.7 && wasOpen.value -> {
+                                        visibleLeftDrawerFraction < 0.7 && wasOpen.value -> {
                                             // If less than 30% of the drawer is visible, snap it closed
                                             -screenWidth.value
                                         }
+
                                         else -> {
                                             // Default behavior, should not be needed but added for robustness
-                                            if (offsetLeftDrawerX.value < (-screenWidth.value - drawerWidth.value / 2)) {
-                                                -screenWidth.value // More towards open
+                                            if (offsetLeftDrawerX.value > (-screenWidth.value + drawerWidth.value / 2)) {
+                                                0f // More towards open
                                             } else {
-                                                -screenWidth.value + drawerWidth.value // More towards close
+                                                -screenWidth.value // More towards close
                                             }
                                         }
                                     }
-                                    wasOpen.value = -target == screenWidth.value - drawerWidth.value
+                                    wasOpen.value = target == 0f
                                     offsetLeftDrawerX.animateTo(target, tween(300))
                                 }
                             }
@@ -217,15 +218,14 @@ fun SwipeableDrawerScreen(
                         onDrag = { change, dragAmount ->
                             // Determine drag direction on first movement
                             if (!isHandlingVertical && abs(dragAmount.y) > abs(dragAmount.x) * 5) {
-                                isHandlingVertical = true
+                                if (offsetRightDrawerX.value == screenWidth.value &&
+                                    offsetLeftDrawerX.value == -screenWidth.value
+                                ) {
+                                    isHandlingVertical = true
+                                }
                             }
 
                             if (isHandlingVertical) {
-                                // Handle vertical swipe
-//                                val currentDistance = startY - change.position.y
-//                                if (currentDistance > 200f) {
-//                                    hasReachedThreshold = true
-//                                }
 
                                 val screenHeightPx = with(density) { screenHeight.toPx() }
 
@@ -253,7 +253,7 @@ fun SwipeableDrawerScreen(
                                         offsetLeftDrawerX.snapTo(
                                             newLeftOffSet.coerceIn(
                                                 -screenWidth.value,
-                                                screenWidth.value - drawerWidth.value
+                                                0f
                                             )
                                         )
                                     }

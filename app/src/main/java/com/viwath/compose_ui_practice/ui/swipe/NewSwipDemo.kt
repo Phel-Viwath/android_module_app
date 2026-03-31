@@ -1,5 +1,6 @@
 package com.viwath.compose_ui_practice.ui.swipe
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -85,6 +86,7 @@ fun SwipeableDrawerDemo() {
 
             // ── Right Drawer ───────────────────────────────────────────
             rightDrawer = {
+                Log.d("MainActivity", "SwipeableDrawerDemo: Right Drawer")
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -121,6 +123,7 @@ fun SwipeableDrawerDemo() {
 
             // ── Left Drawer ────────────────────────────────────────────
             leftDrawer = {
+                Log.d("MainActivity", "SwipeableDrawerDemo: Left Drawer")
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -157,6 +160,7 @@ fun SwipeableDrawerDemo() {
 
             // ── Center Panel ───────────────────────────────────────────
             centerPanel = {
+                Log.d("MainActivity", "SwipeableDrawerDemo: Center Panel")
 
                 Box(
                     modifier = Modifier
@@ -238,7 +242,7 @@ fun SwipeableDrawerDemo() {
 
             onSwipeUp = {
                 isPanelExpanded = true
-
+                Log.d("MainActivity", "SwipeableDrawerDemo: Swipe Up")
             }
 
 
@@ -247,7 +251,6 @@ fun SwipeableDrawerDemo() {
             SwipUp()
         }
     }
-
 
 }
 
