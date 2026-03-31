@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.viwath.compose_ui_practice.ui.swipe.SwipeDownPanelDemo
+import com.viwath.compose_ui_practice.ui.swipe.SwipeableDrawerDemo
 import com.viwath.compose_ui_practice.ui.theme.Compose_ui_practiceTheme
 
 
@@ -19,7 +20,9 @@ class MainActivity : ComponentActivity() {
                 //WidgetDashboardScreen()
                 //MixedWidgetDashboard()
 
-                SwipeDownPanelDemo()
+                //SwipeDownPanelDemo()
+
+                SwipeableDrawerDemo()
             }
         }
     }
