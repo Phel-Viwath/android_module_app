@@ -25,14 +25,16 @@ import androidx.compose.ui.unit.sp
 fun SwipeableDrawerDemo() {
 
     var drawerState by remember { mutableFloatStateOf(0f) }
-    var isPanelExpanded by remember { mutableStateOf(false) }
+    var showSwipeUp by remember { mutableStateOf(false) }
 
     Box {
+
         SwipeableDrawerScreen(
             drawerState = drawerState,
-            onDrawerStateChanged = { drawerState = it },
+            onDrawerStateChanged = {
+                drawerState = it
+            },
 
-            // ── Main Screen ────────────────────────────────────────────
             mainContent = {
 
                 Box(
@@ -53,213 +55,94 @@ fun SwipeableDrawerDemo() {
                             fontWeight = FontWeight.Bold
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(Modifier.height(12.dp))
 
                         Text(
-                            text = "← Swipe left for Blue drawer",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = 13.sp
-                        )
-
-                        Text(
-                            text = "Swipe right for Green drawer →",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = 13.sp
-                        )
-
-                        Text(
-                            text = "↑ Swipe up for Center panel",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = 13.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Text(
-                            text = "Drawer State: ${drawerState.format(2)}",
-                            color = Color(0xFF00FFCC),
-                            fontSize = 12.sp
+                            text = "Drawer State : $drawerState",
+                            color = Color.Cyan
                         )
                     }
                 }
             },
 
-            // ── Right Drawer ───────────────────────────────────────────
             rightDrawer = {
-                Log.d("MainActivity", "SwipeableDrawerDemo: Right Drawer")
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF0F3460)),
-                    contentAlignment = Alignment.Center
-                ) {
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-
-                        Text(text = "🟢", fontSize = 48.sp)
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Right Drawer",
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Swipe back to close",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                DrawerScreen(
+                    emoji = "🟢",
+                    title = "Right Drawer",
+                    color = Color(0xFF0F3460)
+                )
             },
 
-            // ── Left Drawer ────────────────────────────────────────────
             leftDrawer = {
-                Log.d("MainActivity", "SwipeableDrawerDemo: Left Drawer")
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF16213E)),
-                    contentAlignment = Alignment.Center
-                ) {
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-
-                        Text(text = "🔵", fontSize = 48.sp)
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Left Drawer",
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Swipe back to close",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = 13.sp
-                        )
-                    }
-                }
+                DrawerScreen(
+                    emoji = "🔵",
+                    title = "Left Drawer",
+                    color = Color(0xFF16213E)
+                )
             },
 
-            // ── Center Panel ───────────────────────────────────────────
             centerPanel = {
-                Log.d("MainActivity", "SwipeableDrawerDemo: Center Panel")
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            color = Color(0xFF533483),
-                            shape = RoundedCornerShape(
-                                topStart = 28.dp,
-                                topEnd = 28.dp
-                            )
-                        )
-                ) {
-
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-
-                        // Drag handle
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .size(width = 40.dp, height = 5.dp)
-                                .background(
-                                    color = Color(0xFFAAAAAA),
-                                    shape = RoundedCornerShape(50)
-                                )
-                        )
-
-                        Spacer(modifier = Modifier.height(32.dp))
-
-                        Text(
-                            text = "⬆",
-                            fontSize = 36.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "Center Panel",
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Swipe up to expand",
-                            color = Color(0xFFCCCCCC),
-                            fontSize = 13.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(32.dp))
-
-                        // Demo content
-                        repeat(5) {
-
-                            Box(
-                                modifier = Modifier
-                                    .padding(8.dp)
-                                    .fillMaxSize()
-                                    .height(60.dp)
-                                    .background(
-                                        Color(0xFF6B4FA3),
-                                        RoundedCornerShape(16.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Panel Item ${it + 1}",
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-                }
+                CenterPanel()
             },
 
             onSwipeUp = {
-                isPanelExpanded = true
-                Log.d("MainActivity", "SwipeableDrawerDemo: Swipe Up")
+                showSwipeUp = true
             }
-
-
         )
-        if (isPanelExpanded) {
+
+        if (showSwipeUp) {
             SwipUp()
         }
     }
+}
 
+@Composable
+private fun DrawerScreen(
+    emoji: String,
+    title: String,
+    color: Color
+) {
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(color),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            Text(
+                text = emoji,
+                fontSize = 48.sp
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
 }
 
 
-
-
-// Helper Extension
-private fun Float.format(digits: Int) =
-    "%.${digits}f".format(this)
+@Composable
+fun CenterPanel(){
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) { }
+}
 
 @Composable
 fun SwipUp(){
