@@ -2,8 +2,6 @@ package com.viwath.compose_ui_practice.ui.swipe
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -12,27 +10,21 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -43,7 +35,6 @@ fun SwipeableDrawerScreen(
     enableLeftDrawer: Boolean = true,
     drawerState: Float,
     onDrawerStateChanged: (Float) -> Unit = {},
-    // Called whenever the center panel open/closed state changes.
     onCenterPanelStateChanged: (Boolean) -> Unit = {},
     mainContent: @Composable BoxScope.() -> Unit,
     rightDrawer: @Composable BoxScope.() -> Unit,
@@ -62,15 +53,12 @@ fun SwipeableDrawerScreen(
 
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    val centerBoxHeight = remember { Animatable(0f) }
-    val centerBoxWidth = remember { Animatable(0f) }
-    val collapseHeightThreshold = screenHeightPx * 0.2f
-    val collapseWidth = screenWidthPx * 0.6f
+    val centerPanelState = rememberCenterPanelState(
+        screenHeightPx,
+        screenWidthPx
+    )
 
-    // ── Derived state: is the center panel considered "open"? ──────────────
-    val isCenterPanelOpen by remember {
-        derivedStateOf { centerBoxHeight.value > screenHeightPx * 0.05f }
-    }
+    val isCenterPanelOpen = centerPanelState.isOpen
 
     // Notify caller whenever open state flips.
     LaunchedEffect(isCenterPanelOpen) {
@@ -78,10 +66,9 @@ fun SwipeableDrawerScreen(
     }
 
     // ── BackHandler: collapse center panel when it is open ─────────────────
-    BackHandler(enabled = isCenterPanelOpen) {
+    BackHandler(enabled = centerPanelState.isOpen) {
         scope.launch {
-            centerBoxHeight.animateTo(0f, tween(300))
-            centerBoxWidth.animateTo(collapseWidth, tween(300))
+            centerPanelState.collapse()
         }
     }
 
@@ -139,27 +126,18 @@ fun SwipeableDrawerScreen(
                             ) {
                                 if (isHandlingVertical) {
                                     scope.launch {
-                                        if (centerBoxHeight.value > screenHeightPx * 0.1f) {
-                                            centerBoxHeight.animateTo(
-                                                screenHeightPx + statusBarHeight.toPx(),
-                                                spring(stiffness = Spring.StiffnessLow)
-                                            )
-                                            centerBoxWidth.animateTo(
-                                                screenWidthPx,
-                                                spring(stiffness = Spring.StiffnessLow)
-                                            )
+                                        if (centerPanelState.height.value > screenHeightPx * 0.1f) {
+                                            centerPanelState.expand(statusBarHeight.toPx())
                                         } else {
-                                            centerBoxHeight.animateTo(0f, tween(300))
-                                            centerBoxWidth.animateTo(collapseWidth, tween(300))
+                                            centerPanelState.collapse()
                                         }
                                     }
 
-                                    val isCenterBoxOpened =
-                                        centerBoxHeight.value > screenHeightPx * 0.05f
+                                    val isCenterBoxOpened = centerPanelState.isOpen
                                     if (hasReachedThreshold && isSwipeUp) {
                                         if (isCenterBoxOpened) {
                                             scope.launch {
-                                                centerBoxHeight.animateTo(0f, tween(300))
+                                                centerPanelState.collapse()
                                             }
                                         } else {
                                             onDrawerStateChanged(0.0f)
@@ -211,8 +189,7 @@ fun SwipeableDrawerScreen(
                             hasReachedThreshold = false
                         },
                         onDrag = { change, dragAmount ->
-                            val isCenterBoxOpened =
-                                centerBoxHeight.value > screenHeightPx * 0.05f
+                            val isCenterPanelOpen = centerPanelState.isOpen
 
                             if (!isHandlingVertical && abs(dragAmount.y) > abs(dragAmount.x) * 5) {
                                 if (offsetRightDrawerX.value == screenWidth.value &&
@@ -222,21 +199,25 @@ fun SwipeableDrawerScreen(
                                 }
                             }
                             if (isHandlingVertical) {
-                                if (dragAmount.y > 0 || centerBoxHeight.value > 0) {
+                                if (dragAmount.y > 0 || centerPanelState.height.value > 0) {
                                     scope.launch {
+
                                         val newHeight =
-                                            (centerBoxHeight.value + dragAmount.y)
-                                                .coerceIn(0f, screenHeightPx)
+                                            (centerPanelState.height.value + dragAmount.y).coerceIn(0f, screenHeightPx)
+
+                                        val collapseThreshold = screenHeightPx * 0.2f
+                                        val collapseWidth = screenWidthPx * 0.8f
+
                                         val newWidth =
-                                            if (newHeight < collapseHeightThreshold) {
-                                                (centerBoxWidth.value + dragAmount.y)
+                                            if (newHeight < collapseThreshold) {
+                                                (centerPanelState.width.value + dragAmount.y)
                                                     .coerceIn(collapseWidth, screenWidthPx)
-                                            } else {
-                                                (centerBoxWidth.value + dragAmount.y)
-                                                    .coerceIn(screenWidthPx, screenWidthPx)
-                                            }
-                                        centerBoxHeight.snapTo(newHeight)
-                                        centerBoxWidth.snapTo(newWidth)
+                                            } else { screenWidthPx }
+
+                                        centerPanelState.snap(
+                                            newHeight,
+                                            newWidth
+                                        )
                                     }
                                 }
 
@@ -249,7 +230,7 @@ fun SwipeableDrawerScreen(
                                     isSwipeUp = false
                                 }
                             } else {
-                                if (!isCenterBoxOpened) {
+                                if (!isCenterPanelOpen) {
                                     scope.launch {
                                         val scaledDragAmount = dragAmount.x * 0.4f
                                         if (enableLeftDrawer &&
@@ -285,8 +266,6 @@ fun SwipeableDrawerScreen(
             } else Modifier,
         ),
     ) {
-        val centerBoxHeightDp = with(density) { centerBoxHeight.value.toDp() }
-        val centerBoxWidthDp = with(density) { centerBoxWidth.value.toDp() }
 
         // Main content
         Box(
@@ -318,25 +297,11 @@ fun SwipeableDrawerScreen(
         }
 
         // ── Center panel with animated corner radius ───────────────────────
-        if (centerBoxHeight.value > 0f) {
-            // progress: 0 = just opening (large radius), 1 = full screen (no radius)
-            val progress = (centerBoxHeight.value / screenHeightPx).coerceIn(0f, 1f)
-            // lerp from 24.dp (card-like) → 0.dp (edge-to-edge, no corners)
-            val cornerRadius: Dp = lerp(24.dp, 0.dp, progress)
-
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(centerBoxWidthDp)
-                        .height(centerBoxHeightDp)
-                        .clip(RoundedCornerShape(cornerRadius))
-                ) {
-                    centerPanel()
-                }
-            }
+        CenterPanelLayout(
+            state = centerPanelState,
+            screenHeightPx = screenHeightPx
+        ) {
+            centerPanel()
         }
     }
 }
