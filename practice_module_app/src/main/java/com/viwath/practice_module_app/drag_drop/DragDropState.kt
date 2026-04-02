@@ -184,6 +184,8 @@ class DragDropState(
     val draggingItemCenter: Offset
         get() {
             val snapshot = draggedItemSnapshot ?: return Offset.Zero
+            // The snapshot offset is the item's REAL layout position.
+            // draggingItemOffset is the accumulated finger delta from drag-start.
             return Offset(
                 x = snapshot.offset.x + snapshot.size.width  / 2f + draggingItemOffset.x,
                 y = snapshot.offset.y + snapshot.size.height / 2f + draggingItemOffset.y,
@@ -273,39 +275,39 @@ class DragDropState(
         val center       = draggingItemCenter
         val visibleItems = layoutState.layoutInfo.visibleItemsInfo
 
-        // Find the neighbour whose centre is closest to the drag centre.
+        // Find the closest item by VISUAL centre (accounting for displacements)
         val closest = visibleItems
             .filter { it.index != currentIndex }
             .minByOrNull { item ->
+                // Item's real layout position + its current visual shift
+                val visualOffsetY = item.offset.y + displacementFor(item.index).y
                 val cx = item.offset.x + item.size.width  / 2f
-                val cy = item.offset.y + item.size.height / 2f
+                val cy = visualOffsetY  + item.size.height / 2f
                 val dx = cx - center.x
                 val dy = cy - center.y
                 dx * dx + dy * dy
             } ?: return
 
-        // Only swap once the drag centre has crossed the neighbour's mid-point.
-        val neighbourCx = closest.offset.x + closest.size.width  / 2f
-        val neighbourCy = closest.offset.y + closest.size.height / 2f
+        // Threshold: swap when finger centre crosses the neighbour's visual midpoint
+        val visualNeighbourTop = closest.offset.y + displacementFor(closest.index).y
+        val neighbourCx = closest.offset.x  + closest.size.width  / 2f
+        val neighbourCy = visualNeighbourTop + closest.size.height / 2f
 
         val dragCrossedX = when {
             currentIndex < closest.index -> center.x >= neighbourCx
             currentIndex > closest.index -> center.x <= neighbourCx
-            else                         -> true   // same column (list)
+            else -> true
         }
         val dragCrossedY = when {
             currentIndex < closest.index -> center.y >= neighbourCy
             currentIndex > closest.index -> center.y <= neighbourCy
-            else                         -> true
+            else -> true
         }
 
-        // For a vertical list only the Y axis matters; for a grid both may apply.
-        // We treat them independently: swap when either axis is crossed.
-        val shouldSwap = dragCrossedY || dragCrossedX
+        if (!(dragCrossedY || dragCrossedX)) return
+        if (closest.index == targetIndex) return   // already targeting this slot
 
-        if (!shouldSwap || closest.index == currentIndex) return
-
-        // ── 1. Brief hop animation on the neighbour ──────────────────────────
+        // Spring hop on the neighbour
         val hopOffset = Offset(
             x = (draggedItemSnapshot?.let { (it.offset.x - closest.offset.x).toFloat() } ?: 0f) * 0.18f,
             y = (draggedItemSnapshot?.let { (it.offset.y - closest.offset.y).toFloat() } ?: 0f) * 0.18f,
@@ -314,7 +316,6 @@ class DragDropState(
             Animatable(Offset.Zero, Offset.VectorConverter)
         }
         scope.launch {
-            // Quick nudge toward where the dragged item was, then spring back.
             anim.snapTo(hopOffset)
             anim.animateTo(Offset.Zero, ShiftSpring)
         }
