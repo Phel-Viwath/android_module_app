@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.viwath.compose_ui_practice.ui.DragDropScreen
 import com.viwath.compose_ui_practice.ui.swipe.SwipeableDrawerDemo
 import com.viwath.compose_ui_practice.ui.theme.Compose_ui_practiceTheme
 
@@ -15,13 +16,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             Compose_ui_practiceTheme {
                 //PracticeModule()
-                //DragDropScreen()
+                DragDropScreen()
                 //WidgetDashboardScreen()
                 //MixedWidgetDashboard()
 
                 //SwipeDownPanelDemo()
 
-                SwipeableDrawerDemo()
+                //SwipeableDrawerDemo()
             }
         }
     }

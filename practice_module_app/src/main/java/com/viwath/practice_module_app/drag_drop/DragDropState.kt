@@ -139,6 +139,8 @@ class DragDropState(
     val edgeScrollZone: Float = 100f,
     val edgeScrollSpeed: Float = 14f,
 ) {
+    private var targetIndex: Int? = null
+
 
     // ── Core drag state ──────────────────────────────────────────────────────
 
@@ -238,7 +240,16 @@ class DragDropState(
         handleEdgeScroll()
     }
 
-    internal fun onDragEnd()    = cleanup()
+    internal fun onDragEnd() {
+        val from = draggingItemIndex
+        val to = targetIndex
+
+        if (from != null && to != null && from != to) {
+            onMove(from, to)
+        }
+
+        cleanup()
+    }
     internal fun onDragCancel() = cleanup()
 
     // ── Live-swap logic ───────────────────────────────────────────────────────
@@ -308,11 +319,7 @@ class DragDropState(
             anim.animateTo(Offset.Zero, ShiftSpring)
         }
 
-        // ── 2. Commit the swap in the backing list ───────────────────────────
-        onMove(currentIndex, closest.index)
-
-        // ── 3. Follow the item to its new index ──────────────────────────────
-        draggingItemIndex = closest.index
+        targetIndex = closest.index
 
         // ── 4. Recapture the snapshot at the new index ───────────────────────
         //    Layout may not have recomposed yet, so we update after a frame.
@@ -355,6 +362,7 @@ class DragDropState(
     private fun cleanup() {
         scrollJob?.cancel()
 
+        targetIndex = null
         draggingItemIndex   = null
         draggingItemOffset  = Offset.Zero
         draggedItemSnapshot = null
