@@ -1,51 +1,121 @@
+// PanelContainer.kt
 package com.viwath.compose_ui_practice.ui.swipe
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+
+
+import kotlin.math.min
 
 @Composable
-fun CenterPanelLayout(
-    state: CenterPanelState,
+fun PanelContainer(
+    state: PanelContainerState,
+    shape: PanelContainerShape = PanelContainerShape.RoundedRect(),
+    sizeFraction: Float = 0.75f,          // fraction of screen to occupy
+    screenWidthPx: Float,
     screenHeightPx: Float,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    if (state.scale.value <= 0.01f) return
 
     val density = LocalDensity.current
+    val containerSize = min(screenWidthPx, screenHeightPx) * sizeFraction
+    val containerSizeDp = with(density) { containerSize.toDp() }
 
-    if (state.height.value > 0f) {
+    val resolvedShape = resolveShape(shape, state.shapeProgress.value)
 
-        val progress =
-            (state.height.value / screenHeightPx).coerceIn(0f, 1f)
-
-        val cornerRadius = lerp(24.dp, 0.dp, progress)
-
-        val heightDp = with(density) { state.height.value.toDp() }
-        val widthDp = with(density) { state.width.value.toDp() }
-
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
         Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(widthDp)
-                    .height(heightDp)
-                    .clip(RoundedCornerShape(cornerRadius))
-            ) {
-                content()
-            }
+            modifier = Modifier
+                .size(containerSizeDp)
+                .scale(state.scale.value)
+                .alpha(state.alpha.value)
+                .clip(resolvedShape)
+                .background(Color.Gray),
+            content = content
+        )
+    }
+}
+
+// ── Shape resolver ────────────────────────────────────────────────────────────
+
+private fun resolveShape(shape: PanelContainerShape, progress: Float): Shape =
+    when (shape) {
+        is PanelContainerShape.Circle -> CircleShape
+        is PanelContainerShape.Stadium -> StadiumShape
+        is PanelContainerShape.Diamond -> DiamondShape
+        is PanelContainerShape.RoundedRect -> AnimatedRoundedShape(
+            cornerFraction = shape.cornerPercent * progress
+        )
+        is PanelContainerShape.Custom -> {
+            CustomPathShape(shape.path)
         }
     }
+
+// ── Shape implementations ─────────────────────────────────────────────────────
+
+private val CircleShape = object : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Generic(Path().apply {
+            addOval(androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height))
+        })
+}
+
+private val StadiumShape = object : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                0f, 0f, size.width, size.height,
+                radiusX = size.height / 2f,
+                radiusY = size.height / 2f
+            )
+        )
+}
+
+private val DiamondShape = object : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Generic(Path().apply {
+            moveTo(size.width / 2f, 0f)
+            lineTo(size.width, size.height / 2f)
+            lineTo(size.width / 2f, size.height)
+            lineTo(0f, size.height / 2f)
+            close()
+        })
+}
+
+private class AnimatedRoundedShape(private val cornerFraction: Float) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                0f, 0f, size.width, size.height,
+                radiusX = size.width * cornerFraction,
+                radiusY = size.height * cornerFraction
+            )
+        )
+}
+
+private class CustomPathShape(private val pathBuilder: (Size) -> Path) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Generic(pathBuilder(size))
 }

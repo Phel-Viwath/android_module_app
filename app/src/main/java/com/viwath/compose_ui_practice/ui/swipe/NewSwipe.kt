@@ -53,12 +53,12 @@ fun SwipeableDrawerScreen(
 
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    val centerPanelState = rememberCenterPanelState(
+    val panelState = rememberPanelContainerState(
         screenHeightPx,
         screenWidthPx
     )
 
-    val isCenterPanelOpen = centerPanelState.isOpen
+    val isCenterPanelOpen = panelState.isOpen
 
     // Notify caller whenever open state flips.
     LaunchedEffect(isCenterPanelOpen) {
@@ -66,9 +66,9 @@ fun SwipeableDrawerScreen(
     }
 
     // ── BackHandler: collapse center panel when it is open ─────────────────
-    BackHandler(enabled = centerPanelState.isOpen) {
+    BackHandler(enabled = panelState.isOpen) {
         scope.launch {
-            centerPanelState.collapse()
+            panelState.collapse()
         }
     }
 
@@ -126,18 +126,15 @@ fun SwipeableDrawerScreen(
                             ) {
                                 if (isHandlingVertical) {
                                     scope.launch {
-                                        if (centerPanelState.height.value > screenHeightPx * 0.1f) {
-                                            centerPanelState.expand(statusBarHeight.toPx())
-                                        } else {
-                                            centerPanelState.collapse()
-                                        }
+                                        if (panelState.scale.value > 0.3f) panelState.expand()
+                                        else panelState.collapse()
                                     }
 
-                                    val isCenterBoxOpened = centerPanelState.isOpen
+                                    val isCenterBoxOpened = panelState.isOpen
                                     if (hasReachedThreshold && isSwipeUp) {
                                         if (isCenterBoxOpened) {
                                             scope.launch {
-                                                centerPanelState.collapse()
+                                                panelState.collapse()
                                             }
                                         } else {
                                             onDrawerStateChanged(0.0f)
@@ -189,7 +186,7 @@ fun SwipeableDrawerScreen(
                             hasReachedThreshold = false
                         },
                         onDrag = { change, dragAmount ->
-                            val isCenterPanelOpen = centerPanelState.isOpen
+                            val isCenterPanelOpen = panelState.isOpen
 
                             if (!isHandlingVertical && abs(dragAmount.y) > abs(dragAmount.x) * 5) {
                                 if (offsetRightDrawerX.value == screenWidth.value &&
@@ -199,27 +196,9 @@ fun SwipeableDrawerScreen(
                                 }
                             }
                             if (isHandlingVertical) {
-                                if (dragAmount.y > 0 || centerPanelState.height.value > 0) {
-                                    scope.launch {
-
-                                        val newHeight =
-                                            (centerPanelState.height.value + dragAmount.y).coerceIn(0f, screenHeightPx)
-
-                                        val collapseThreshold = screenHeightPx * 0.2f
-                                        val collapseWidth = screenWidthPx * 0.8f
-
-                                        val newWidth =
-                                            if (newHeight < collapseThreshold) {
-                                                (centerPanelState.width.value + dragAmount.y)
-                                                    .coerceIn(collapseWidth, screenWidthPx)
-                                            } else { screenWidthPx }
-
-                                        centerPanelState.snap(
-                                            newHeight,
-                                            newWidth
-                                        )
-                                    }
-                                }
+                                val progress = (panelState.scale.value - dragAmount.y / screenHeightPx)
+                                    .coerceIn(0f, 1f)
+                                scope.launch { panelState.snap(progress) }
 
                                 val currentDistance = startY - change.position.y
                                 if (currentDistance > 200f) {
@@ -297,8 +276,11 @@ fun SwipeableDrawerScreen(
         }
 
         // ── Center panel with animated corner radius ───────────────────────
-        CenterPanelLayout(
-            state = centerPanelState,
+        PanelContainer(
+            state = panelState,
+            shape = PanelContainerShape.Circle,   // ← swap any shape here
+            sizeFraction = 0.75f,
+            screenWidthPx = screenWidthPx,
             screenHeightPx = screenHeightPx
         ) {
             centerPanel()
