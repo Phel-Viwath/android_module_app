@@ -6,12 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,32 +40,25 @@ fun SwipeableDrawerScreen(
     onSwipeUp: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val screenWidth  = LocalConfiguration.current.screenWidthDp.dp
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    val drawerWidth: Dp = LocalConfiguration.current.screenWidthDp.dp
+    val drawerWidth: Dp = screenWidth
 
     val density = LocalDensity.current
     val screenHeightPx = with(density) { screenHeight.toPx() }
-    val screenWidthPx = with(density) { screenWidth.toPx() }
+    val screenWidthPx  = with(density) { screenWidth.toPx() }
 
-    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val panelState = rememberPanelContainerState(screenHeightPx, screenWidthPx)
 
-    val panelState = rememberPanelContainerState(
-        screenHeightPx,
-        screenWidthPx
-    )
-
-    val isCenterPanelOpen = panelState.isOpen
-
-    // Notify caller whenever open state flips.
-    LaunchedEffect(isCenterPanelOpen) {
-        onCenterPanelStateChanged(isCenterPanelOpen)
+    LaunchedEffect(panelState.isOpen) {
+        onCenterPanelStateChanged(panelState.isOpen)
     }
 
-    // ── BackHandler: collapse center panel when it is open ─────────────────
+    // Back: if fullscreen → shrink back to panel; if panel open → collapse
     BackHandler(enabled = panelState.isOpen) {
         scope.launch {
-            panelState.collapse()
+            if (panelState.isFullscreen) panelState.expand()
+            else panelState.collapse()
         }
     }
 
@@ -85,26 +75,20 @@ fun SwipeableDrawerScreen(
     val offsetLeftDrawerX = remember {
         Animatable(
             when (drawerState) {
-                0.0f -> -screenWidth.value
+                0.0f  -> -screenWidth.value
                 -1.0f -> screenWidth.value - drawerWidth.value
-                else -> -(screenWidth.value - -(drawerWidth.value * drawerState))
+                else  -> -(screenWidth.value - -(drawerWidth.value * drawerState))
             }
         )
     }
 
     val wasOpen = remember { mutableStateOf(false) }
 
-    var isSwipeUp = false
-
-
     LaunchedEffect(offsetLeftDrawerX.value) {
-        val drawerStateTarget = -((offsetLeftDrawerX.value / screenWidth.value) + 1)
-        onDrawerStateChanged(drawerStateTarget)
+        onDrawerStateChanged(-((offsetLeftDrawerX.value / screenWidth.value) + 1))
     }
-
     LaunchedEffect(offsetRightDrawerX.value) {
-        val drawerStateTarget = (offsetRightDrawerX.value / screenWidth.value)
-        onDrawerStateChanged(drawerStateTarget)
+        onDrawerStateChanged(offsetRightDrawerX.value / screenWidth.value)
     }
 
     Box(
@@ -112,128 +96,122 @@ fun SwipeableDrawerScreen(
             if (enableRightDrawer || enableLeftDrawer) {
                 Modifier.pointerInput(Unit) {
                     var startY = 0f
-                    var hasReachedThreshold = false
                     var isHandlingVertical = false
+                    // true = finger moving up, false = finger moving down
+                    var directionUp = false
+
                     detectDragGestures(
                         onDragStart = { offset ->
                             startY = offset.y
-                            hasReachedThreshold = false
                             isHandlingVertical = false
+                            directionUp = false
                         },
-                        onDragEnd = {
-                            if (offsetRightDrawerX.value == screenWidth.value &&
-                                offsetLeftDrawerX.value == -screenWidth.value
-                            ) {
-                                if (isHandlingVertical) {
-                                    scope.launch {
-                                        if (panelState.scale.value > 0.3f) panelState.expand()
-                                        else panelState.collapse()
-                                    }
 
-                                    val isCenterBoxOpened = panelState.isOpen
-                                    if (hasReachedThreshold && isSwipeUp) {
-                                        if (isCenterBoxOpened) {
-                                            scope.launch {
-                                                panelState.collapse()
+                        onDragEnd = {
+                            val bothDrawersClosed =
+                                offsetRightDrawerX.value == screenWidth.value &&
+                                        offsetLeftDrawerX.value  == -screenWidth.value
+
+                            if (bothDrawersClosed && isHandlingVertical) {
+                                scope.launch {
+                                    when {
+                                        // Was swiping UP → settle the floating panel
+                                        directionUp -> {
+                                            if (panelState.scale.value > 0.3f) panelState.expand()
+                                            else panelState.collapse()
+                                        }
+                                        // Was swiping DOWN → settle fullscreen or collapse
+                                        else -> {
+                                            when {
+                                                panelState.fullscreen.value > 0.4f -> panelState.expandFullscreen()
+                                                panelState.scale.value > 0.3f      -> panelState.expand()
+                                                else                               -> panelState.collapse()
                                             }
-                                        } else {
-                                            onDrawerStateChanged(0.0f)
-                                            onSwipeUp()
                                         }
                                     }
                                 }
                             }
-                            scope.launch {
-                                val visibleFraction =
-                                    (screenWidth.value - offsetRightDrawerX.value) / drawerWidth.value
-                                val visibleLeftDrawerFraction =
-                                    -((screenWidth.value + offsetLeftDrawerX.value) / drawerWidth.value)
 
-                                if (visibleFraction > 0) {
+                            // Settle horizontal drawers
+                            scope.launch {
+                                val visR = (screenWidth.value - offsetRightDrawerX.value) / drawerWidth.value
+                                val visL = -((screenWidth.value + offsetLeftDrawerX.value) / drawerWidth.value)
+
+                                if (visR > 0) {
                                     val target = when {
-                                        visibleFraction >= 0.3 && !wasOpen.value ->
-                                            screenWidth.value - drawerWidth.value
-                                        visibleFraction < 0.7 && wasOpen.value ->
-                                            screenWidth.value
-                                        else -> {
-                                            if (offsetRightDrawerX.value < (screenWidth.value - drawerWidth.value / 2))
-                                                screenWidth.value - drawerWidth.value
-                                            else
-                                                screenWidth.value
-                                        }
+                                        visR >= 0.3 && !wasOpen.value -> screenWidth.value - drawerWidth.value
+                                        visR < 0.7  &&  wasOpen.value -> screenWidth.value
+                                        else -> if (offsetRightDrawerX.value < screenWidth.value - drawerWidth.value / 2)
+                                            screenWidth.value - drawerWidth.value else screenWidth.value
                                     }
                                     wasOpen.value = target == screenWidth.value - drawerWidth.value
                                     offsetRightDrawerX.animateTo(target, tween(300))
                                 }
-
-                                if (visibleLeftDrawerFraction < 0) {
+                                if (visL < 0) {
                                     val target = when {
-                                        visibleLeftDrawerFraction <= -0.3 && !wasOpen.value ->
-                                            screenWidth.value - drawerWidth.value
-                                        visibleLeftDrawerFraction > -0.7 && wasOpen.value ->
-                                            -screenWidth.value
-                                        else -> {
-                                            if (offsetLeftDrawerX.value < (-screenWidth.value - drawerWidth.value / 2))
-                                                -screenWidth.value
-                                            else
-                                                -screenWidth.value + drawerWidth.value
-                                        }
+                                        visL <= -0.3 && !wasOpen.value -> screenWidth.value - drawerWidth.value
+                                        visL > -0.7  &&  wasOpen.value -> -screenWidth.value
+                                        else -> if (offsetLeftDrawerX.value < -screenWidth.value - drawerWidth.value / 2)
+                                            -screenWidth.value else -screenWidth.value + drawerWidth.value
                                     }
                                     wasOpen.value = -target == screenWidth.value - drawerWidth.value
                                     offsetLeftDrawerX.animateTo(target, tween(300))
                                 }
                             }
-                            hasReachedThreshold = false
                         },
+
                         onDrag = { change, dragAmount ->
-                            val isCenterPanelOpen = panelState.isOpen
+                            val bothDrawersClosed =
+                                offsetRightDrawerX.value == screenWidth.value &&
+                                        offsetLeftDrawerX.value  == -screenWidth.value
 
+                            // Detect if this gesture is primarily vertical
                             if (!isHandlingVertical && abs(dragAmount.y) > abs(dragAmount.x) * 5) {
-                                if (offsetRightDrawerX.value == screenWidth.value &&
-                                    offsetLeftDrawerX.value == -screenWidth.value
-                                ) {
-                                    isHandlingVertical = true
-                                }
+                                if (bothDrawersClosed) isHandlingVertical = true
                             }
-                            if (isHandlingVertical) {
-                                val progress = (panelState.scale.value - dragAmount.y / screenHeightPx)
-                                    .coerceIn(0f, 1f)
-                                scope.launch { panelState.snap(progress) }
 
-                                val currentDistance = startY - change.position.y
-                                if (currentDistance > 200f) {
-                                    hasReachedThreshold = true
-                                    isSwipeUp = true
-                                }
-                                if (currentDistance < -100) {
-                                    isSwipeUp = false
+                            if (isHandlingVertical) {
+                                directionUp = dragAmount.y < 0
+
+                                if (directionUp) {
+                                    // ── Swipe UP: open the floating panel ──────────────────
+                                    // Only drive this when not already fullscreen
+                                    if (!panelState.isFullscreen) {
+                                        val progress = (panelState.scale.value - dragAmount.y / screenHeightPx)
+                                            .coerceIn(0f, 1f)
+                                        scope.launch { panelState.snap(progress) }
+
+                                        // If dragged far enough up → trigger swipe-up sheet
+                                        val distanceUp = startY - change.position.y
+                                        if (distanceUp > 200f && !panelState.isOpen) {
+                                            onDrawerStateChanged(0f)
+                                            onSwipeUp()
+                                        }
+                                    }
+                                } else {
+                                    // ── Swipe DOWN: expand to fullscreen ───────────────────
+                                    // Only activates when the floating panel is already open
+                                    if (panelState.isOpen) {
+                                        val fs = (panelState.fullscreen.value + dragAmount.y / screenHeightPx)
+                                            .coerceIn(0f, 1f)
+                                        scope.launch { panelState.snapFullscreen(fs) }
+                                    }
                                 }
                             } else {
-                                if (!isCenterPanelOpen) {
+                                // ── Horizontal: open left / right drawers ──────────────────
+                                if (!panelState.isOpen) {
                                     scope.launch {
-                                        val scaledDragAmount = dragAmount.x * 0.4f
-                                        if (enableLeftDrawer &&
-                                            offsetRightDrawerX.value >= screenWidth.value
-                                        ) {
-                                            val newLeftOffSet =
-                                                offsetLeftDrawerX.value + scaledDragAmount
+                                        val scaledDrag = dragAmount.x * 0.4f
+                                        if (enableLeftDrawer && offsetRightDrawerX.value >= screenWidth.value) {
                                             offsetLeftDrawerX.snapTo(
-                                                newLeftOffSet.coerceIn(
-                                                    -screenWidth.value,
-                                                    screenWidth.value - drawerWidth.value
-                                                )
+                                                (offsetLeftDrawerX.value + scaledDrag)
+                                                    .coerceIn(-screenWidth.value, screenWidth.value - drawerWidth.value)
                                             )
                                         }
-                                        if (enableRightDrawer &&
-                                            offsetLeftDrawerX.value <= -screenWidth.value
-                                        ) {
-                                            val newOffset =
-                                                offsetRightDrawerX.value + scaledDragAmount
+                                        if (enableRightDrawer && offsetLeftDrawerX.value <= -screenWidth.value) {
                                             offsetRightDrawerX.snapTo(
-                                                newOffset.coerceIn(
-                                                    screenWidth.value - drawerWidth.value,
-                                                    screenWidth.value
-                                                )
+                                                (offsetRightDrawerX.value + scaledDrag)
+                                                    .coerceIn(screenWidth.value - drawerWidth.value, screenWidth.value)
                                             )
                                         }
                                     }
@@ -245,43 +223,34 @@ fun SwipeableDrawerScreen(
             } else Modifier,
         ),
     ) {
-
         // Main content
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .align(Alignment.Center)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().align(Alignment.Center)) {
             mainContent()
         }
 
         // Right drawer
         Box(
             modifier = Modifier
-                .offset(x = offsetRightDrawerX.value.dp, y = 0.dp)
+                .offset(x = offsetRightDrawerX.value.dp)
                 .width(drawerWidth)
                 .fillMaxHeight()
-        ) {
-            rightDrawer()
-        }
+        ) { rightDrawer() }
 
         // Left drawer
         Box(
             modifier = Modifier
-                .offset(x = offsetLeftDrawerX.value.dp, y = 0.dp)
+                .offset(x = offsetLeftDrawerX.value.dp)
                 .width(drawerWidth)
                 .fillMaxHeight()
-        ) {
-            leftDrawer()
-        }
+        ) { leftDrawer() }
 
-        // ── Center panel with animated corner radius ───────────────────────
+        // Center panel — shape is always preserved, fullscreen just grows it
         PanelContainer(
             state = panelState,
-            shape = PanelContainerShape.Circle,   // ← swap any shape here
+            shape = PanelContainerShape.Circle,  // ← change shape here; it keeps its form when fullscreen
             sizeFraction = 0.75f,
             screenWidthPx = screenWidthPx,
-            screenHeightPx = screenHeightPx
+            screenHeightPx = screenHeightPx,
         ) {
             centerPanel()
         }

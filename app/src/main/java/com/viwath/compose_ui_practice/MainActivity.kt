@@ -19,9 +19,6 @@ class MainActivity : ComponentActivity() {
                 DragDropScreen()
                 //WidgetDashboardScreen()
                 //MixedWidgetDashboard()
-
-                //SwipeDownPanelDemo()
-
                 //SwipeableDrawerDemo()
             }
         }
