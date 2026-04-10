@@ -48,7 +48,7 @@ fun SwipeableDrawerScreen(
     val screenHeightPx = with(density) { screenHeight.toPx() }
     val screenWidthPx  = with(density) { screenWidth.toPx() }
 
-    val panelState = rememberPanelContainerState(screenHeightPx, screenWidthPx)
+    val panelState = rememberPanelContainerState()
 
     LaunchedEffect(panelState.isOpen) {
         onCenterPanelStateChanged(panelState.isOpen)
@@ -247,10 +247,8 @@ fun SwipeableDrawerScreen(
         // Center panel — shape is always preserved, fullscreen just grows it
         PanelContainer(
             state = panelState,
-            shape = PanelContainerShape.Circle,  // ← change shape here; it keeps its form when fullscreen
+
             sizeFraction = 0.75f,
-            screenWidthPx = screenWidthPx,
-            screenHeightPx = screenHeightPx,
         ) {
             centerPanel()
         }

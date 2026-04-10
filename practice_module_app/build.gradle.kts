@@ -86,5 +86,14 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.core)
     implementation(libs.coil.network)
+
+    // ViewModel
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // DataStore – for persisting pinned order
+    implementation(libs.androidx.datastore.preferences)
+
+    // Reorderable drag-and-drop
+    implementation(libs.reorderable)
 }
 

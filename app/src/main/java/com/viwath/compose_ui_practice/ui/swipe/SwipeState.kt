@@ -13,73 +13,59 @@ import kotlinx.coroutines.launch
 class PanelContainerState(
     val scale: Animatable<Float, AnimationVector1D>,
     val alpha: Animatable<Float, AnimationVector1D>,
-    val shapeProgress: Animatable<Float, AnimationVector1D>,
-    // 0 = floating panel, 1 = fills the whole screen (same shape, just bigger)
     val fullscreen: Animatable<Float, AnimationVector1D>,
-    private val screenHeight: Float,
-    private val screenWidth: Float,
 ) {
+
     val isOpen: Boolean get() = scale.value > 0.05f
     val isFullscreen: Boolean get() = fullscreen.value > 0.95f
 
-    /** Open as a small floating panel. */
     suspend fun expand() {
         coroutineScope {
-            launch { fullscreen.animateTo(0f, tween(300)) }
-            launch { scale.animateTo(1f, spring(stiffness = Spring.StiffnessMediumLow)) }
+            launch { scale.animateTo(1f, spring()) }
             launch { alpha.animateTo(1f, tween(250)) }
-            launch { shapeProgress.animateTo(1f, tween(400, easing = FastOutSlowInEasing)) }
+            launch { fullscreen.animateTo(0f) }
         }
     }
 
-    /** Hide the panel completely. */
     suspend fun collapse() {
         coroutineScope {
-            launch { fullscreen.animateTo(0f, tween(250)) }
             launch { scale.animateTo(0f, tween(300)) }
             launch { alpha.animateTo(0f, tween(200)) }
-            launch { shapeProgress.animateTo(0f, tween(300)) }
+            launch { fullscreen.animateTo(0f) }
         }
     }
 
-    /**
-     * Grow to fill the screen — the shape stays exactly the same (circle stays
-     * circle, star stays star), it just expands until it covers the screen.
-     */
     suspend fun expandFullscreen() {
         coroutineScope {
-            launch { scale.animateTo(1f, tween(350, easing = FastOutSlowInEasing)) }
-            launch { alpha.animateTo(1f, tween(200)) }
-            launch { shapeProgress.animateTo(1f, tween(350, easing = FastOutSlowInEasing)) }
-            launch { fullscreen.animateTo(1f, tween(400, easing = FastOutSlowInEasing)) }
+            launch { fullscreen.animateTo(1f, tween(400)) }
+            launch { scale.animateTo(1f) }
+            launch { alpha.animateTo(1f) }
         }
     }
 
-    /** Snap the floating-panel open amount during swipe-up drag. */
-    suspend fun snap(s: Float) {
-        val c = s.coerceIn(0f, 1f)
+    suspend fun snap(scaleValue: Float) {
+        val c = scaleValue.coerceIn(0f, 1f)
         scale.snapTo(c)
         alpha.snapTo(c)
-        shapeProgress.snapTo(c)
     }
 
-    /** Snap the fullscreen expansion fraction during swipe-down drag. */
     suspend fun snapFullscreen(fs: Float) {
         fullscreen.snapTo(fs.coerceIn(0f, 1f))
     }
 }
 
 @Composable
-fun rememberPanelContainerState(
-    screenHeight: Float,
-    screenWidth: Float,
-): PanelContainerState {
-    val scale         = remember { Animatable(0f) }
-    val alpha         = remember { Animatable(0f) }
-    val shapeProgress = remember { Animatable(0f) }
-    val fullscreen    = remember { Animatable(0f) }
+fun rememberPanelContainerState(): PanelContainerState {
+    val scale = remember { Animatable(0f) }
+    val alpha = remember { Animatable(0f) }
+    val fullscreen = remember { Animatable(0f) }
+
     return remember {
-        PanelContainerState(scale, alpha, shapeProgress, fullscreen, screenHeight, screenWidth)
+        PanelContainerState(
+            scale,
+            alpha,
+            fullscreen
+        )
     }
 }
 
