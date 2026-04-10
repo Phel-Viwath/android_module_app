@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import com.viwath.compose_ui_practice.ui.DragDropScreen
 import com.viwath.compose_ui_practice.ui.swipe.SwipeableDrawerDemo
 import com.viwath.compose_ui_practice.ui.theme.Compose_ui_practiceTheme
+import com.viwath.practice_module_app.drag_drop2.MainMenuGrid
 import com.viwath.practice_module_app.drag_drop2.MenuScreen
 import com.viwath.practice_module_app.drag_drop2.MenuScreen2
 
@@ -23,7 +24,8 @@ class MainActivity : ComponentActivity() {
                 //MixedWidgetDashboard()
                 //SwipeableDrawerDemo()
                 //MenuScreen2()
-                MenuScreen()
+                //MenuScreen()
+                MainMenuGrid()
             }
         }
     }
