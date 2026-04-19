@@ -115,8 +115,56 @@ class MenuViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { dataStore.saveMoreOrder(list) }
     }
 
+    fun isPinnedFull(): Boolean = pinnedIndices.value.size >= MAX_PINNED
+    fun isMoreFull(): Boolean   = moreIndices.value.size   >= MAX_MORE
+
+    /**
+     * More → Pinned swap (already implemented).
+     * The displaced Pinned item goes to the front of More.
+     */
+    fun swapMoreToPinned(moreSourceIdx: Int, pinnedTargetIdx: Int) {
+        val pinned = pinnedIndices.value.toMutableList()
+        val more   = moreIndices.value.toMutableList()
+
+        val safeMoreIdx   = moreSourceIdx.coerceIn(0, more.lastIndex)
+        val safePinnedIdx = pinnedTargetIdx.coerceIn(0, pinned.lastIndex)
+
+        val incomingItem  = more.removeAt(safeMoreIdx)
+        val displacedItem = pinned[safePinnedIdx]
+
+        pinned[safePinnedIdx] = incomingItem
+        more.add(0, displacedItem)
+
+        _pinnedIndices.value = pinned
+        _moreIndices.value   = more
+    }
+
+    /**
+     * Pinned → More swap (symmetric).
+     * The displaced More item goes to the front of Pinned.
+     */
+    fun swapPinnedToMore(pinnedSourceIdx: Int, moreTargetIdx: Int) {
+        val pinned = pinnedIndices.value.toMutableList()
+        val more   = moreIndices.value.toMutableList()
+
+        val safePinnedIdx = pinnedSourceIdx.coerceIn(0, pinned.lastIndex)
+        val safeMoreIdx   = moreTargetIdx.coerceIn(0, more.lastIndex)
+
+        val incomingItem  = pinned.removeAt(safePinnedIdx)  // pull from Pinned
+        val displacedItem = more[safeMoreIdx]               // remember who gets bumped
+
+        more[safeMoreIdx] = incomingItem                    // place into More slot
+        pinned.add(0, displacedItem)                        // bumped item → front of Pinned
+
+        _pinnedIndices.value = pinned
+        _moreIndices.value   = more
+    }
+
+
+
     companion object {
         const val MAX_PINNED = 9
+        const val MAX_MORE   = 8
     }
 }
 

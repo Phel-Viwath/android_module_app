@@ -101,7 +101,7 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel()) {
         ) {
             itemsIndexed(pinnedItems, key = { _, item -> "pinned_${item.action}" }) { index, item ->
                 ReorderableItem(reorderableGridState, key = "pinned_${item.action}") { isDragging ->
-                    MenuGridCell(
+                    MenuBox(
                         item = item,
                         isDragging = isDragging,
                         onLongClick = {
@@ -227,7 +227,7 @@ fun MenuScreen(viewModel: MenuViewModel = viewModel()) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MenuGridCell(
+fun MenuBox(
     item: MenuItem,
     isDragging: Boolean,
     onLongClick: () -> Unit,
