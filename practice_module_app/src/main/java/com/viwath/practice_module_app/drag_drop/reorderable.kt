@@ -21,11 +21,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -66,17 +61,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.viwath.practice_module_app.drag_drop.GridPops.DUMMY
-import com.viwath.practice_module_app.drag_drop.GridPops.GRID_SPAN
 import com.viwath.practice_module_app.drag_drop.GridPops.MORE_COLS
 import com.viwath.practice_module_app.drag_drop.GridPops.MORE_SIZE
 import com.viwath.practice_module_app.drag_drop.GridPops.PINNED_COLS
 import kotlinx.coroutines.launch
-import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyGridState
 import kotlin.math.roundToInt
 
 
-// Main screen composable
 @Composable
 fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
     val state by vm.state
@@ -93,25 +84,23 @@ fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { vm.exitEditMode() },
+                        onClick  = { vm.exitEditMode() },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White.copy(0.3f)))
-                    ) {
-                        Text("Cancel")
-                    }
+                        colors   = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border   = ButtonDefaults.outlinedButtonBorder.copy(
+                            brush = SolidColor(Color.White.copy(0.3f))
+                        )
+                    ) { Text("Cancel") }
 
                     Button(
-                        onClick = { vm.saveLayout() },
+                        onClick  = { vm.saveLayout() },
                         modifier = Modifier.weight(1f),
-                        enabled = state.enableSave,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFE84C1E),
+                        enabled  = state.enableSave,
+                        colors   = ButtonDefaults.buttonColors(
+                            containerColor         = Color(0xFFE84C1E),
                             disabledContainerColor = Color(0xFFE84C1E).copy(alpha = 0.4f)
                         )
-                    ) {
-                        Text("Save")
-                    }
+                    ) { Text("Save") }
                 }
             }
         }
@@ -129,17 +118,17 @@ fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
                     .padding(vertical = 20.dp)
             ) {
                 QuickAccessMenuDragGrid(
-                    pinnedWidgets = state.pinnedWidgets,
-                    moreWidgets = state.moreWidgets,
-                    isEditMode = state.isEditMode,
-                    canAddToPinned = state.canAddToPinned,
-                    enableReset = state.enableReset,
-                    onEnterEditMode = { vm.enterEditMode() },
-                    onReset = { vm.reset() },
+                    pinnedWidgets      = state.pinnedWidgets,
+                    moreWidgets        = state.moreWidgets,
+                    isEditMode         = state.isEditMode,
+                    canAddToPinned     = state.canAddToPinned,
+                    enableReset        = state.enableReset,
+                    onEnterEditMode    = { vm.enterEditMode() },
+                    onReset            = { vm.reset() },
                     onRemoveFromPinned = { vm.removeFromPinned(it) },
-                    onAddToPinned = { vm.addToPinned(it) },
-                    onMovePinned = { from, to -> vm.movePinned(from, to) },
-                    onMoveMore = { from, to -> vm.moveMore(from, to) },
+                    onAddToPinned      = { vm.addToPinned(it) },
+                    onMovePinned       = { from, to -> vm.movePinned(from, to) },
+                    onMoveMore         = { from, to -> vm.moveMore(from, to) },
                     onMovePinnedToMore = { vm.movePinnedToMore(it) },
                     onSwapPinnedToMore = { pinned, more -> vm.swapPinnedToMore(pinned, more) },
                     onMoveMoreToPinned = { vm.moveMoreToPinned(it) },
@@ -150,7 +139,13 @@ fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
     }
 }
 
-// The main drag grid - this was a pain to get working right
+// ─────────────────────────────────────────────────────────────────────────────
+// Main drag grid
+// No ReorderableItem. One pointerInput per slot handles everything:
+//   - finger stays in same zone  → reorder (onMovePinned / onMoveMore)
+//   - finger crosses zone        → cross-zone drop
+// ─────────────────────────────────────────────────────────────────────────────
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QuickAccessMenuDragGrid(
@@ -170,24 +165,63 @@ fun QuickAccessMenuDragGrid(
     onMoveMoreToPinned: (Int) -> Unit,
     onSwapMoreToPinned: (Int, Int) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val scope     = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
 
     val pagerState = rememberPagerState(pageCount = { moreWidgets.size.coerceAtLeast(1) })
     val morePage by remember { derivedStateOf { pagerState.currentPage } }
     var pagerRootBounds by remember { mutableStateOf<Rect?>(null) }
+    var containerRootOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // Keep pager in sync if page count changes
     LaunchedEffect(moreWidgets.size) {
         if (pagerState.currentPage >= moreWidgets.size)
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
     }
 
-    // Cross-zone drag handlers
-    val onCrossDragUpdate: (Offset) -> Unit = { rootOffset ->
+    // Called every pointer-move frame
+    val onDragUpdate: (Offset) -> Unit = { rootOffset ->
         dragState.dragging = dragState.dragging?.copy(fingerRootOffset = rootOffset)
 
-        // Auto page flipping when dragging near edges
+        // Live reorder within Pinned — fire every frame the finger is in Pinned
+        dragState.dragging?.let { info ->
+            if (info.sourceZone == DragZone.PINNED) {
+                val hovered = dragState.slotBounds.entries
+                    .firstOrNull { (key, rect) ->
+                        key.first == DragZone.PINNED &&
+                                key.second != info.sourceIndex &&
+                                rect.contains(rootOffset)
+                    }
+                if (hovered != null) {
+                    val toIdx = hovered.key.second
+                    onMovePinned(info.sourceIndex, toIdx)
+                    // Update sourceIndex so next frame compares from new position
+                    dragState.dragging = info.copy(
+                        sourceIndex      = toIdx,
+                        fingerRootOffset = rootOffset
+                    )
+                }
+            }
+
+            // Live reorder within More — fire every frame the finger is in More
+            if (info.sourceZone == DragZone.MORE) {
+                val hovered = dragState.slotBounds.entries
+                    .firstOrNull { (key, rect) ->
+                        key.first == DragZone.MORE &&
+                                key.second != info.sourceIndex &&
+                                rect.contains(rootOffset)
+                    }
+                if (hovered != null) {
+                    val toIdx = hovered.key.second
+                    onMoveMore(info.sourceIndex, toIdx)
+                    dragState.dragging = info.copy(
+                        sourceIndex      = toIdx,
+                        fingerRootOffset = rootOffset
+                    )
+                }
+            }
+        }
+
+        // Auto page-flip when hovering near pager left/right edges
         pagerRootBounds?.let { bounds ->
             if (rootOffset.y > bounds.top) {
                 val relX = rootOffset.x - bounds.left
@@ -202,15 +236,16 @@ fun QuickAccessMenuDragGrid(
         }
     }
 
-    val onCrossDragEnd: (Offset) -> Unit = { fingerOffset ->
+    // Called on finger lift
+    val onDragEnd: (Offset) -> Unit = { fingerOffset ->
         resolveDropOnEnd(
-            fingerOffset = fingerOffset,
-            dragState = dragState,
-            morePage = morePage,
-            moreWidgets = moreWidgets,
-            pinnedWidgets = pinnedWidgets,
-            onMovePinned = onMovePinned,
-            onMoveMore = onMoveMore,
+            fingerOffset       = fingerOffset,
+            dragState          = dragState,
+            morePage           = morePage,
+            moreWidgets        = moreWidgets,
+            pinnedWidgets      = pinnedWidgets,
+            onMovePinned       = onMovePinned,
+            onMoveMore         = onMoveMore,
             onMovePinnedToMore = onMovePinnedToMore,
             onSwapPinnedToMore = onSwapPinnedToMore,
             onMoveMoreToPinned = onMoveMoreToPinned,
@@ -219,8 +254,6 @@ fun QuickAccessMenuDragGrid(
         dragState.dragging = null
     }
 
-    var containerRootOffset by remember { mutableStateOf(Offset.Zero) }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,101 +261,101 @@ fun QuickAccessMenuDragGrid(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
 
-            // Pinned section header
+            // ── Pinned header ─────────────────────────────────────────────
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
-                Text("📌  Pinned", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "📌  Pinned",
+                    color      = Color.White,
+                    fontSize   = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (isEditMode) {
                     Text(
-                        text = "Reset",
-                        color = if (enableReset) Color(0xFFFF6B3D) else Color.White.copy(0.2f),
-                        fontSize = 13.sp,
+                        text       = "Reset",
+                        color      = if (enableReset) Color(0xFFFF6B3D) else Color.White.copy(0.2f),
+                        fontSize   = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable(enabled = enableReset) { onReset() }
+                        modifier   = Modifier.clickable(enabled = enableReset) { onReset() }
                     )
                 }
             }
 
             Spacer(Modifier.height(12.dp))
 
-            // Pinned grid
-            val pinnedGridState = rememberLazyGridState()
-            val pinnedReorderable = rememberReorderableLazyGridState(pinnedGridState) { from, to ->
-                onMovePinned(from.index, to.index)
-            }
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(GRID_SPAN),
-                state = pinnedGridState,
-                modifier = Modifier
+            // ── Pinned 3-col manual grid ──────────────────────────────────
+            // Manual Row/Column instead of LazyVerticalGrid so we own the
+            // full gesture pipeline with no library interference.
+            val pinnedRows = (pinnedWidgets.size + PINNED_COLS - 1) / PINNED_COLS
+            Column(
+                modifier            = Modifier
                     .fillMaxWidth()
-                    .wrapContentHeight()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                userScrollEnabled = false
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(
-                    items = pinnedWidgets,
-                    key = { _, w -> "pinned_${w.action}" },
-                    span = { _, _ -> GridItemSpan(GRID_SPAN / PINNED_COLS) }
-                ) { index, widget ->
-                    ReorderableItem(pinnedReorderable, key = "pinned_${widget.action}") { isDragging ->
+                for (row in 0 until pinnedRows) {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (col in 0 until PINNED_COLS) {
+                            val index = row * PINNED_COLS + col
+                            if (index < pinnedWidgets.size) {
+                                val widget = pinnedWidgets[index]
+                                val isDraggingThis = dragState.dragging?.let {
+                                    it.sourceZone == DragZone.PINNED && it.sourceIndex == index
+                                } ?: false
+                                val isDropTarget = dragState.dragging?.let { info ->
+                                    !(info.sourceZone == DragZone.PINNED && info.sourceIndex == index) &&
+                                            dragState.slotBounds[DragZone.PINNED to index]
+                                                ?.contains(info.fingerRootOffset) == true
+                                } ?: false
 
-                        val isCrossSrc = dragState.dragging?.let {
-                            it.sourceZone == DragZone.PINNED && it.sourceIndex == index
-                        } ?: false
-
-                        val isDropTarget = dragState.dragging?.let { info ->
-                            info.sourceZone == DragZone.MORE &&
-                                    dragState.slotBounds[DragZone.PINNED to index]
-                                        ?.contains(info.fingerRootOffset) == true
-                        } ?: false
-
-                        Box(
-                            modifier = Modifier
-                                .onGloballyPositioned {
-                                    dragState.slotBounds[DragZone.PINNED to index] = it.boundsInRoot()
-                                }
-                                .graphicsLayer { alpha = if (isCrossSrc) 0f else 1f }
-                                .then(
-                                    if (isDropTarget) Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
-                                    else Modifier
-                                )
-                                .then(
-                                    if (isEditMode && widget.action != DUMMY)
-                                        Modifier.dragSource(
-                                            zone = DragZone.PINNED,
-                                            slotIndex = index,
-                                            dragState = dragState,
-                                            onDragStart = {
-                                                dragState.dragging = DragInfo(
-                                                    widget = widget,
-                                                    sourceZone = DragZone.PINNED,
-                                                    sourceIndex = index,
-                                                    fingerRootOffset = Offset.Zero
-                                                )
-                                            },
-                                            onDragUpdate = onCrossDragUpdate,
-                                            onDragEnd = onCrossDragEnd
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .onGloballyPositioned {
+                                            dragState.slotBounds[DragZone.PINNED to index] =
+                                                it.boundsInRoot()
+                                        }
+                                        .graphicsLayer {
+                                            alpha = if (isDraggingThis) 0f else 1f
+                                        }
+                                        .then(
+                                            if (isDropTarget) Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
+                                            else Modifier
                                         )
-                                    else Modifier
-                                )
-                        ) {
-                            PinnedWidgetCard(
-                                widget = widget,
-                                isDragging = isDragging || isCrossSrc,
-                                isEditMode = isEditMode,
-                                dragModifier = if (isEditMode && widget.action != DUMMY)
-                                    Modifier.draggableHandle() else Modifier,
-                                onRemove = { onRemoveFromPinned(index) },
-                                onLongClick = onEnterEditMode
-                            )
+                                        .then(
+                                            if (isEditMode && widget.action != DUMMY)
+                                                Modifier.unifiedDragSource(
+                                                    zone         = DragZone.PINNED,
+                                                    slotIndex    = index,
+                                                    widget       = widget,
+                                                    dragState    = dragState,
+                                                    onDragUpdate = onDragUpdate,
+                                                    onDragEnd    = onDragEnd
+                                                )
+                                            else Modifier
+                                        )
+                                ) {
+                                    PinnedWidgetCard(
+                                        widget      = widget,
+                                        isDragging  = isDraggingThis,
+                                        isEditMode  = isEditMode,
+                                        onRemove    = { onRemoveFromPinned(index) },
+                                        onLongClick = onEnterEditMode
+                                    )
+                                }
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                 }
@@ -330,17 +363,24 @@ fun QuickAccessMenuDragGrid(
 
             Spacer(Modifier.height(20.dp))
 
-            // More section header
+            // ── More header ───────────────────────────────────────────────
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
-                Text("⋯  More", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "⋯  More",
+                    color      = Color.White,
+                    fontSize   = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (moreWidgets.size > 1) {
                     Text(
-                        text = "${morePage + 1} / ${moreWidgets.size}",
-                        color = Color.White.copy(0.4f),
+                        text     = "${morePage + 1} / ${moreWidgets.size}",
+                        color    = Color.White.copy(0.4f),
                         fontSize = 11.sp
                     )
                 }
@@ -348,12 +388,12 @@ fun QuickAccessMenuDragGrid(
 
             Spacer(Modifier.height(12.dp))
 
-            // More pager
+            // ── More pager — each page is a manual 4-col grid ────────────
             var maxMoreHeightPx by remember { mutableIntStateOf(0) }
             val density = LocalDensity.current
 
             HorizontalPager(
-                state = pagerState,
+                state    = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
@@ -366,106 +406,97 @@ fun QuickAccessMenuDragGrid(
                 userScrollEnabled = !isEditMode && dragState.dragging == null
             ) { page ->
                 val pageWidgets = moreWidgets.getOrElse(page) { emptyList() }
-                val moreGridState = rememberLazyGridState()
-                val moreReorderable = rememberReorderableLazyGridState(moreGridState) { from, to ->
-                    val pageOffset = page * MORE_SIZE
-                    onMoveMore(from.index + pageOffset, to.index + pageOffset)
-                }
+                val pageRows    = (pageWidgets.size + MORE_COLS - 1) / MORE_COLS
 
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(GRID_SPAN),
-                    state = moreGridState,
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .wrapContentHeight()
                         .padding(horizontal = 16.dp)
                         .onSizeChanged { size ->
                             if (size.height > maxMoreHeightPx) maxMoreHeightPx = size.height
                         },
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    userScrollEnabled = false
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    itemsIndexed(
-                        items = pageWidgets,
-                        key = { _, w -> "more_${w.action}_p$page" },
-                        span = { _, _ -> GridItemSpan(GRID_SPAN / MORE_COLS) }
-                    ) { localIdx, widget ->
-                        val flatIdx = page * MORE_SIZE + localIdx
+                    for (row in 0 until pageRows) {
+                        Row(
+                            modifier              = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            for (col in 0 until MORE_COLS) {
+                                val localIdx = row * MORE_COLS + col
+                                val flatIdx  = page * MORE_SIZE + localIdx
+                                if (localIdx < pageWidgets.size) {
+                                    val widget = pageWidgets[localIdx]
+                                    val isDraggingThis = dragState.dragging?.let {
+                                        it.sourceZone == DragZone.MORE && it.sourceIndex == flatIdx
+                                    } ?: false
+                                    val isDropTarget = dragState.dragging?.let { info ->
+                                        !(info.sourceZone == DragZone.MORE && info.sourceIndex == flatIdx) &&
+                                                dragState.slotBounds[DragZone.MORE to flatIdx]
+                                                    ?.contains(info.fingerRootOffset) == true
+                                    } ?: false
 
-                        ReorderableItem(moreReorderable, key = "more_${widget.action}_p$page") { isDragging ->
-
-                            val isCrossSrc = dragState.dragging?.let {
-                                it.sourceZone == DragZone.MORE && it.sourceIndex == flatIdx
-                            } ?: false
-
-                            val isDropTarget = dragState.dragging?.let { info ->
-                                info.sourceZone == DragZone.PINNED &&
-                                        dragState.slotBounds[DragZone.MORE to flatIdx]
-                                            ?.contains(info.fingerRootOffset) == true
-                            } ?: false
-
-                            Box(
-                                modifier = Modifier
-                                    .onGloballyPositioned {
-                                        dragState.slotBounds[DragZone.MORE to flatIdx] = it.boundsInRoot()
-                                    }
-                                    .graphicsLayer { alpha = if (isCrossSrc) 0f else 1f }
-                                    .then(
-                                        if (isDropTarget) Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
-                                        else Modifier
-                                    )
-                                    .then(
-                                        if (isEditMode)
-                                            Modifier.dragSource(
-                                                zone = DragZone.MORE,
-                                                slotIndex = flatIdx,
-                                                dragState = dragState,
-                                                onDragStart = {
-                                                    dragState.dragging = DragInfo(
-                                                        widget = widget,
-                                                        sourceZone = DragZone.MORE,
-                                                        sourceIndex = flatIdx,
-                                                        fingerRootOffset = Offset.Zero
-                                                    )
-                                                },
-                                                onDragUpdate = onCrossDragUpdate,
-                                                onDragEnd = onCrossDragEnd
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .onGloballyPositioned {
+                                                dragState.slotBounds[DragZone.MORE to flatIdx] =
+                                                    it.boundsInRoot()
+                                            }
+                                            .graphicsLayer {
+                                                alpha = if (isDraggingThis) 0f else 1f
+                                            }
+                                            .then(
+                                                if (isDropTarget) Modifier
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
+                                                else Modifier
                                             )
-                                        else Modifier
-                                    )
-                            ) {
-                                MoreWidgetCard(
-                                    widget = widget,
-                                    isDragging = isDragging || isCrossSrc,
-                                    isEditMode = isEditMode,
-                                    canAdd = canAddToPinned,
-                                    dragModifier = if (isEditMode) Modifier.draggableHandle() else Modifier,
-                                    onAdd = { onAddToPinned(widget) },
-                                    onLongClick = onEnterEditMode
-                                )
+                                            .then(
+                                                if (isEditMode)
+                                                    Modifier.unifiedDragSource(
+                                                        zone         = DragZone.MORE,
+                                                        slotIndex    = flatIdx,
+                                                        widget       = widget,
+                                                        dragState    = dragState,
+                                                        onDragUpdate = onDragUpdate,
+                                                        onDragEnd    = onDragEnd
+                                                    )
+                                                else Modifier
+                                            )
+                                    ) {
+                                        MoreWidgetCard(
+                                            widget      = widget,
+                                            isDragging  = isDraggingThis,
+                                            isEditMode  = isEditMode,
+                                            canAdd      = canAddToPinned,
+                                            onAdd       = { onAddToPinned(widget) },
+                                            onLongClick = onEnterEditMode
+                                        )
+                                    }
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // Dot indicator for pager
+            // ── Dot indicator ─────────────────────────────────────────────
             if (moreWidgets.size > 1) {
                 Spacer(Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier              = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment     = Alignment.CenterVertically
                 ) {
                     repeat(moreWidgets.size) { index ->
                         val selected = morePage == index
                         val dotSize by animateDpAsState(
-                            targetValue = if (selected) 8.dp else 5.dp,
+                            targetValue   = if (selected) 8.dp else 5.dp,
                             animationSpec = tween(200),
-                            label = "dot_$index"
+                            label         = "dot_$index"
                         )
                         Box(
                             modifier = Modifier
@@ -473,7 +504,8 @@ fun QuickAccessMenuDragGrid(
                                 .size(dotSize)
                                 .clip(CircleShape)
                                 .background(
-                                    if (selected) Color(0xFFE84C1E) else Color.White.copy(0.25f)
+                                    if (selected) Color(0xFFE84C1E)
+                                    else Color.White.copy(0.25f)
                                 )
                         )
                     }
@@ -481,54 +513,121 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        // Ghost image while dragging across zones
+        // Ghost — floats above everything, direct child of root Box
         dragState.dragging?.let { info ->
             DragGhost(
-                widget = info.widget,
-                offset = info.fingerRootOffset,
-                isPinned = info.sourceZone == DragZone.PINNED,
+                widget              = info.widget,
+                offset              = info.fingerRootOffset,
+                isPinned            = info.sourceZone == DragZone.PINNED,
                 containerRootOffset = containerRootOffset
             )
         }
     }
 }
 
-// Custom drag source modifier for cross-zone dragging
-private fun Modifier.dragSource(
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified drag source
+// One single detectDragGesturesAfterLongPress per slot.
+// Within-zone reorder fires live during drag via onDragUpdate.
+// Cross-zone fires on lift via resolveDropOnEnd.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun Modifier.unifiedDragSource(
     zone: DragZone,
     slotIndex: Int,
+    widget: ActionWidget,
     dragState: QuickAccessDragState,
-    onDragStart: () -> Unit,
     onDragUpdate: (Offset) -> Unit,
     onDragEnd: (Offset) -> Unit
 ): Modifier = this.pointerInput(zone, slotIndex) {
     detectDragGesturesAfterLongPress(
         onDragStart = { localOffset ->
-            onDragStart()
+            // Create DragInfo with correct root position immediately
             val bounds = dragState.slotBounds[zone to slotIndex]
-            if (bounds != null) {
-                onDragUpdate(Offset(
-                    x = bounds.left + localOffset.x,
-                    y = bounds.top + localOffset.y
-                ))
-            }
+            val rootOffset = if (bounds != null)
+                Offset(bounds.left + localOffset.x, bounds.top + localOffset.y)
+            else localOffset
+
+            dragState.dragging = DragInfo(
+                widget           = widget,
+                sourceZone       = zone,
+                sourceIndex      = slotIndex,
+                fingerRootOffset = rootOffset
+            )
+            onDragUpdate(rootOffset)
         },
         onDrag = { change, _ ->
             change.consume()
             val bounds = dragState.slotBounds[zone to slotIndex]
             if (bounds != null) {
-                onDragUpdate(Offset(
+                // Use the initial slot bounds for the whole drag so the
+                // coordinate origin doesn't jump as sourceIndex updates
+                val rootOffset = Offset(
                     x = bounds.left + change.position.x,
-                    y = bounds.top + change.position.y
-                ))
+                    y = bounds.top  + change.position.y
+                )
+                onDragUpdate(rootOffset)
             }
         },
-        onDragEnd = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) },
+        onDragEnd    = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) },
         onDragCancel = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) }
     )
 }
 
-// Ghost that follows your finger during cross-zone drag
+// ─────────────────────────────────────────────────────────────────────────────
+// Drop resolution — only handles cross-zone on lift.
+// Within-zone reorder already happened live during drag.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun resolveDropOnEnd(
+    fingerOffset: Offset,
+    dragState: QuickAccessDragState,
+    morePage: Int,
+    moreWidgets: List<List<ActionWidget>>,
+    pinnedWidgets: List<ActionWidget>,
+    onMovePinned: (Int, Int) -> Unit,
+    onMoveMore: (Int, Int) -> Unit,
+    onMovePinnedToMore: (Int) -> Unit,
+    onSwapPinnedToMore: (Int, Int) -> Unit,
+    onMoveMoreToPinned: (Int) -> Unit,
+    onSwapMoreToPinned: (Int, Int) -> Unit
+) {
+    val info = dragState.dragging ?: return
+    val hit  = dragState.slotBounds.entries
+        .firstOrNull { (_, rect) -> rect.contains(fingerOffset) }
+        ?: return
+
+    val (targetZone, targetIdx) = hit.key
+    if (targetZone == info.sourceZone) return  // within-zone already handled live
+
+    val currentPageWidgets = moreWidgets.getOrElse(morePage) { emptyList() }
+
+    when (info.sourceZone) {
+        DragZone.PINNED -> when (targetZone) {
+            DragZone.MORE -> {
+                if (currentPageWidgets.size >= MORE_SIZE)
+                    onSwapPinnedToMore(info.sourceIndex, targetIdx)
+                else
+                    onMovePinnedToMore(info.sourceIndex)
+            }
+            else -> Unit
+        }
+        DragZone.MORE -> when (targetZone) {
+            DragZone.PINNED -> {
+                if (pinnedWidgets.getOrNull(targetIdx)?.action == DUMMY)
+                    onMoveMoreToPinned(info.sourceIndex)
+                else
+                    onSwapMoreToPinned(info.sourceIndex, targetIdx)
+            }
+            else -> Unit
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ghost
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun DragGhost(
     widget: ActionWidget,
@@ -536,7 +635,7 @@ private fun DragGhost(
     isPinned: Boolean,
     containerRootOffset: Offset
 ) {
-    val density = LocalDensity.current
+    val density     = LocalDensity.current
     val ghostSizeDp = if (isPinned) 80.dp else 64.dp
     val ghostSizePx = with(density) { ghostSizeDp.toPx() }
 
@@ -560,89 +659,39 @@ private fun DragGhost(
             Text(widget.emoji, fontSize = if (isPinned) 28.sp else 22.sp)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = widget.label,
-                fontSize = 9.sp,
-                color = Color.White,
+                text      = widget.label,
+                fontSize  = 9.sp,
+                color     = Color.White,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp)
+                maxLines  = 1,
+                overflow  = TextOverflow.Ellipsis,
+                modifier  = Modifier.padding(horizontal = 4.dp)
             )
         }
     }
 }
 
-// Figure out where the drop should go when dragging ends
-private fun resolveDropOnEnd(
-    fingerOffset: Offset,
-    dragState: QuickAccessDragState,
-    morePage: Int,
-    moreWidgets: List<List<ActionWidget>>,
-    pinnedWidgets: List<ActionWidget>,
-    onMovePinned: (Int, Int) -> Unit,
-    onMoveMore: (Int, Int) -> Unit,
-    onMovePinnedToMore: (Int) -> Unit,
-    onSwapPinnedToMore: (Int, Int) -> Unit,
-    onMoveMoreToPinned: (Int) -> Unit,
-    onSwapMoreToPinned: (Int, Int) -> Unit
-) {
-    val info = dragState.dragging ?: return
-    val hit = dragState.slotBounds.entries
-        .firstOrNull { (_, rect) -> rect.contains(fingerOffset) }
-        ?: return
-
-    val (targetZone, targetIdx) = hit.key
-    if (targetZone == info.sourceZone && targetIdx == info.sourceIndex) return
-
-    val currentPageWidgets = moreWidgets.getOrElse(morePage) { emptyList() }
-
-    when (info.sourceZone) {
-
-        DragZone.PINNED -> when (targetZone) {
-            DragZone.PINNED -> {
-                onMovePinned(info.sourceIndex, targetIdx)
-            }
-
-            DragZone.MORE -> {
-                if (currentPageWidgets.size >= MORE_SIZE)
-                    onSwapPinnedToMore(info.sourceIndex, targetIdx)
-                else
-                    onMovePinnedToMore(info.sourceIndex)
-            }
-        }
-
-        DragZone.MORE -> when (targetZone) {
-            DragZone.MORE -> {
-                onMoveMore(info.sourceIndex, targetIdx)
-            }
-
-            DragZone.PINNED -> {
-                if (pinnedWidgets.getOrNull(targetIdx)?.action == DUMMY)
-                    onMoveMoreToPinned(info.sourceIndex)
-                else
-                    onSwapMoreToPinned(info.sourceIndex, targetIdx)
-            }
-        }
-    }
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Widget cards — no dragModifier param needed, drag is on the slot Box above
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun PinnedWidgetCard(
     widget: ActionWidget,
     isDragging: Boolean,
     isEditMode: Boolean,
-    dragModifier: Modifier,
     onRemove: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isDragging) 1.07f else 1f, animationSpec = tween(150), label = "ps"
+        targetValue   = if (isDragging) 1.07f else 1f,
+        animationSpec = tween(150),
+        label         = "ps"
     )
     val isDummy = widget.action == DUMMY
 
     Column(
-        modifier = dragModifier
+        modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .aspectRatio(0.9f)
             .clip(RoundedCornerShape(12.dp))
@@ -663,7 +712,8 @@ private fun PinnedWidgetCard(
                 if (isEditMode) {
                     Box(
                         modifier = Modifier
-                            .size(18.dp).clip(CircleShape)
+                            .size(18.dp)
+                            .clip(CircleShape)
                             .background(Color(0xFFE84C1E))
                             .clickable { onRemove() },
                         contentAlignment = Alignment.Center
@@ -674,9 +724,15 @@ private fun PinnedWidgetCard(
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = widget.label, fontSize = 10.sp, color = Color.White,
-                textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                text      = widget.label,
+                fontSize  = 10.sp,
+                color     = Color.White,
+                textAlign = TextAlign.Center,
+                maxLines  = 1,
+                overflow  = TextOverflow.Ellipsis,
+                modifier  = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
             )
         }
     }
@@ -688,15 +744,16 @@ private fun MoreWidgetCard(
     isDragging: Boolean,
     isEditMode: Boolean,
     canAdd: Boolean,
-    dragModifier: Modifier,
     onAdd: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isDragging) 1.07f else 1f, animationSpec = tween(150), label = "ms"
+        targetValue   = if (isDragging) 1.07f else 1f,
+        animationSpec = tween(150),
+        label         = "ms"
     )
     Column(
-        modifier = dragModifier
+        modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .fillMaxWidth()
             .padding(horizontal = 4.dp)
@@ -716,7 +773,8 @@ private fun MoreWidgetCard(
             if (isEditMode && canAdd) {
                 Box(
                     modifier = Modifier
-                        .size(16.dp).clip(CircleShape)
+                        .size(16.dp)
+                        .clip(CircleShape)
                         .background(Color(0xFF22C55E))
                         .clickable { onAdd() },
                     contentAlignment = Alignment.Center
@@ -727,9 +785,15 @@ private fun MoreWidgetCard(
         }
         Spacer(Modifier.height(5.dp))
         Text(
-            text = widget.label, fontSize = 9.sp, color = Color.White.copy(0.8f),
-            textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+            text      = widget.label,
+            fontSize  = 9.sp,
+            color     = Color.White.copy(0.8f),
+            textAlign = TextAlign.Center,
+            maxLines  = 1,
+            overflow  = TextOverflow.Ellipsis,
+            modifier  = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp)
         )
     }
 }
