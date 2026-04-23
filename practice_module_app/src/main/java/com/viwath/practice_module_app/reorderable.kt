@@ -453,8 +453,13 @@ fun QuickAccessMenuDragGrid(
         dragState.dragging = null
     }
 
-    // Root Box so ghost (direct child) can use Modifier.offset freely
-    Box(modifier = Modifier.fillMaxWidth()) {
+    // Root Box — track its own root position so the ghost offset can be
+    // converted from root coords to local Box coords correctly
+    var containerRootOffset by remember { mutableStateOf(Offset.Zero) }
+    Box(modifier = Modifier
+        .fillMaxWidth()
+        .onGloballyPositioned { containerRootOffset = it.boundsInRoot().topLeft }
+    ) {
 
         Column(modifier = Modifier.fillMaxWidth()) {
 
@@ -597,9 +602,10 @@ fun QuickAccessMenuDragGrid(
         // appear anywhere on screen without being clipped by the Column
         dragState.dragging?.let { info ->
             DragGhost(
-                widget   = info.widget,
-                offset   = info.fingerRootOffset,
-                isPinned = info.sourceZone == DragZone.PINNED
+                widget               = info.widget,
+                offset               = info.fingerRootOffset,
+                isPinned             = info.sourceZone == DragZone.PINNED,
+                containerRootOffset  = containerRootOffset
             )
         }
     }
@@ -889,21 +895,22 @@ private fun Modifier.dragSource(
 @Composable
 private fun DragGhost(
     widget: ActionWidget,
-    offset: Offset,
-    isPinned: Boolean
+    offset: Offset,              // root-coordinate finger position
+    isPinned: Boolean,
+    containerRootOffset: Offset  // root-coordinate top-left of the parent Box
 ) {
     val density     = LocalDensity.current
     val ghostSizeDp = if (isPinned) 80.dp else 64.dp
-    val halfPx      = with(density) { ghostSizeDp.toPx() / 2 }
+    val ghostSizePx = with(density) { ghostSizeDp.toPx() }
+
+    // Convert root finger position → local position inside the parent Box,
+    // then shift by half the ghost size so the ghost centre is under the finger
+    val localX = offset.x - containerRootOffset.x - ghostSizePx / 2
+    val localY = offset.y - containerRootOffset.y - ghostSizePx / 2
 
     Box(
         modifier = Modifier
-            .offset {
-                IntOffset(
-                    x = (offset.x - halfPx).roundToInt(),
-                    y = (offset.y - halfPx).roundToInt()
-                )
-            }
+            .offset { IntOffset(localX.roundToInt(), localY.roundToInt()) }
             .size(ghostSizeDp)
             .zIndex(99f)
             .graphicsLayer { scaleX = 1.12f; scaleY = 1.12f; alpha = 0.93f }
