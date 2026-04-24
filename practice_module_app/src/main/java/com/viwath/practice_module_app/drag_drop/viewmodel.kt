@@ -184,25 +184,31 @@ class QuickAccessTestViewModel : ViewModel() {
 
     // Reordering within pinned zone
     fun movePinned(from: Int, to: Int) {
+//        val pinned = _state.value.pinnedWidgets.toMutableList()
+//        if (from !in pinned.indices || to !in pinned.indices) return
+//        val tmp      = pinned[from]
+//        pinned[from] = pinned[to].copy(ordering = from)
+//        pinned[to]   = tmp.copy(ordering = to)
         val pinned = _state.value.pinnedWidgets.toMutableList()
         if (from !in pinned.indices || to !in pinned.indices) return
-
-        val temp = pinned[from]
-        pinned[from] = pinned[to].copy(ordering = from)
-        pinned[to] = temp.copy(ordering = to)
-
+        // Remove from source, insert at target — everything in between shifts
+        val item = pinned.removeAt(from)
+        pinned.add(to, item)
         updateState { it.copy(pinnedWidgets = pinned, enableSave = true) }
     }
 
     // Reordering within more zone
     fun moveMore(from: Int, to: Int) {
+//        val flat = _state.value.moreWidgets.flatten().toMutableList()
+//        if (from !in flat.indices || to !in flat.indices) return
+//
+//        val temp = flat[from]
+//        flat[from] = flat[to]
+//        flat[to] = temp
         val flat = _state.value.moreWidgets.flatten().toMutableList()
         if (from !in flat.indices || to !in flat.indices) return
-
-        val temp = flat[from]
-        flat[from] = flat[to]
-        flat[to] = temp
-
+        val item = flat.removeAt(from)
+        flat.add(to, item)
         updateState { it.copy(moreWidgets = flat.chunked(MORE_SIZE).ifEmpty { listOf(emptyList()) }) }
     }
 
