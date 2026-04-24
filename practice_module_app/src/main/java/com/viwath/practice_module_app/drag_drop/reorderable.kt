@@ -1,7 +1,12 @@
 package com.viwath.practice_module_app.drag_drop
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -66,6 +71,66 @@ import com.viwath.practice_module_app.drag_drop.GridPops.MORE_SIZE
 import com.viwath.practice_module_app.drag_drop.GridPops.PINNED_COLS
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Offset Animatable helper — tracks each widget's animated displacement
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val OffsetVectorConverter = TwoWayConverter<Offset, AnimationVector2D>(
+    convertToVector = { AnimationVector2D(it.x, it.y) },
+    convertFromVector = { Offset(it.v1, it.v2) }
+)
+
+/**
+ * Returns an [Animatable<Offset>] for the given [key].
+ * When [key] changes (item moved to a new slot), the animatable is seeded with
+ * the *previous* slot's recorded bounds so it can spring back to zero from there.
+ *
+ * This is exactly what sh.calvin.reorderable does internally:
+ *   1. Record where the item WAS (old bounds).
+ *   2. Snap the animatable to (oldPos - newPos) — so the item visually stays put.
+ *   3. Animate to Offset.Zero — the item slides into its new slot.
+ */
+@Composable
+private fun rememberSlotAnimatable(
+    key: String,          // stable widget identity
+    slotBounds: Map<Pair<DragZone, Int>, Rect>,
+    zone: DragZone,
+    currentIndex: Int
+): Animatable<Offset, AnimationVector2D> {
+    // Remember the last known slot index for this key so we can diff on recompose
+    val prevIndexRef = remember(key) { mutableStateOf(currentIndex) }
+    val animatable   = remember(key) { Animatable(Offset.Zero, OffsetVectorConverter) }
+    val scope        = rememberCoroutineScope()
+
+    // This runs whenever `currentIndex` changes for the same key
+    LaunchedEffect(key, currentIndex) {
+        val prevIndex = prevIndexRef.value
+        if (prevIndex != currentIndex) {
+            val oldBounds = slotBounds[zone to prevIndex]
+            val newBounds = slotBounds[zone to currentIndex]
+            if (oldBounds != null && newBounds != null) {
+                val dx = oldBounds.left - newBounds.left
+                val dy = oldBounds.top  - newBounds.top
+                // Snap to where the item visually was, then spring to zero
+                animatable.snapTo(Offset(dx, dy))
+                scope.launch {
+                    animatable.animateTo(
+                        targetValue = Offset.Zero,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness    = Spring.StiffnessMedium
+                        )
+                    )
+                }
+            }
+            prevIndexRef.value = currentIndex
+        }
+    }
+
+    return animatable
+}
 
 
 @Composable
@@ -141,9 +206,6 @@ fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main drag grid
-// No ReorderableItem. One pointerInput per slot handles everything:
-//   - finger stays in same zone  → reorder (onMovePinned / onMoveMore)
-//   - finger crosses zone        → cross-zone drop
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -178,11 +240,9 @@ fun QuickAccessMenuDragGrid(
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
     }
 
-    // Called every pointer-move frame
     val onDragUpdate: (Offset) -> Unit = { rootOffset ->
         dragState.dragging = dragState.dragging?.copy(fingerRootOffset = rootOffset)
 
-        // Live reorder within Pinned — fire every frame the finger is in Pinned
         dragState.dragging?.let { info ->
             if (info.sourceZone == DragZone.PINNED) {
                 val hovered = dragState.slotBounds.entries
@@ -194,7 +254,6 @@ fun QuickAccessMenuDragGrid(
                 if (hovered != null) {
                     val toIdx = hovered.key.second
                     onMovePinned(info.sourceIndex, toIdx)
-                    // Update sourceIndex so next frame compares from new position
                     dragState.dragging = info.copy(
                         sourceIndex      = toIdx,
                         fingerRootOffset = rootOffset
@@ -202,7 +261,6 @@ fun QuickAccessMenuDragGrid(
                 }
             }
 
-            // Live reorder within More — fire every frame the finger is in More
             if (info.sourceZone == DragZone.MORE) {
                 val hovered = dragState.slotBounds.entries
                     .firstOrNull { (key, rect) ->
@@ -221,7 +279,6 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        // Auto page-flip when hovering near pager left/right edges
         pagerRootBounds?.let { bounds ->
             if (rootOffset.y > bounds.top) {
                 val relX = rootOffset.x - bounds.left
@@ -236,7 +293,6 @@ fun QuickAccessMenuDragGrid(
         }
     }
 
-    // Called on finger lift
     val onDragEnd: (Offset) -> Unit = { fingerOffset ->
         resolveDropOnEnd(
             fingerOffset       = fingerOffset,
@@ -287,8 +343,6 @@ fun QuickAccessMenuDragGrid(
             Spacer(Modifier.height(12.dp))
 
             // ── Pinned 3-col manual grid ──────────────────────────────────
-            // Manual Row/Column instead of LazyVerticalGrid so we own the
-            // full gesture pipeline with no library interference.
             val pinnedRows = (pinnedWidgets.size + PINNED_COLS - 1) / PINNED_COLS
             Column(
                 modifier            = Modifier
@@ -314,6 +368,16 @@ fun QuickAccessMenuDragGrid(
                                                 ?.contains(info.fingerRootOffset) == true
                                 } ?: false
 
+                                // ── Per-item position animation ──────────
+                                // key = widget.action so the animatable follows
+                                // the *widget identity*, not the slot index.
+                                val posAnim = rememberSlotAnimatable(
+                                    key          = widget.action,
+                                    slotBounds   = dragState.slotBounds,
+                                    zone         = DragZone.PINNED,
+                                    currentIndex = index
+                                )
+
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -322,7 +386,10 @@ fun QuickAccessMenuDragGrid(
                                                 it.boundsInRoot()
                                         }
                                         .graphicsLayer {
-                                            alpha = if (isDraggingThis) 0f else 1f
+                                            // Combine drag-hide alpha with position offset
+                                            alpha       = if (isDraggingThis) 0f else 1f
+                                            translationX = posAnim.value.x
+                                            translationY = posAnim.value.y
                                         }
                                         .then(
                                             if (isDropTarget) Modifier
@@ -434,6 +501,14 @@ fun QuickAccessMenuDragGrid(
                                                     ?.contains(info.fingerRootOffset) == true
                                     } ?: false
 
+                                    // ── Per-item position animation ──────
+                                    val posAnim = rememberSlotAnimatable(
+                                        key          = widget.action,
+                                        slotBounds   = dragState.slotBounds,
+                                        zone         = DragZone.MORE,
+                                        currentIndex = flatIdx
+                                    )
+
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
@@ -442,7 +517,9 @@ fun QuickAccessMenuDragGrid(
                                                     it.boundsInRoot()
                                             }
                                             .graphicsLayer {
-                                                alpha = if (isDraggingThis) 0f else 1f
+                                                alpha        = if (isDraggingThis) 0f else 1f
+                                                translationX = posAnim.value.x
+                                                translationY = posAnim.value.y
                                             }
                                             .then(
                                                 if (isDropTarget) Modifier
@@ -511,7 +588,7 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        // Ghost — floats above everything, direct child of root Box
+        // Ghost — floats above everything
         dragState.dragging?.let { info ->
             DragGhost(
                 widget              = info.widget,
@@ -524,10 +601,7 @@ fun QuickAccessMenuDragGrid(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Unified drag source
-// One single detectDragGesturesAfterLongPress per slot.
-// Within-zone reorder fires live during drag via onDragUpdate.
-// Cross-zone fires on lift via resolveDropOnEnd.
+// Unified drag source — unchanged from original
 // ─────────────────────────────────────────────────────────────────────────────
 
 private fun Modifier.unifiedDragSource(
@@ -540,7 +614,6 @@ private fun Modifier.unifiedDragSource(
 ): Modifier = this.pointerInput(zone, slotIndex) {
     detectDragGesturesAfterLongPress(
         onDragStart = { localOffset ->
-            // Create DragInfo with correct root position immediately
             val bounds = dragState.slotBounds[zone to slotIndex]
             val rootOffset = if (bounds != null)
                 Offset(bounds.left + localOffset.x, bounds.top + localOffset.y)
@@ -558,8 +631,6 @@ private fun Modifier.unifiedDragSource(
             change.consume()
             val bounds = dragState.slotBounds[zone to slotIndex]
             if (bounds != null) {
-                // Use the initial slot bounds for the whole drag so the
-                // coordinate origin doesn't jump as sourceIndex updates
                 val rootOffset = Offset(
                     x = bounds.left + change.position.x,
                     y = bounds.top  + change.position.y
@@ -573,8 +644,7 @@ private fun Modifier.unifiedDragSource(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Drop resolution — only handles cross-zone on lift.
-// Within-zone reorder already happened live during drag.
+// Drop resolution — unchanged from original
 // ─────────────────────────────────────────────────────────────────────────────
 
 private fun resolveDropOnEnd(
@@ -594,7 +664,7 @@ private fun resolveDropOnEnd(
         ?: return
 
     val (targetZone, targetIdx) = hit.key
-    if (targetZone == info.sourceZone) return  // within-zone already handled live
+    if (targetZone == info.sourceZone) return
 
     val currentPageWidgets = moreWidgets.getOrElse(morePage) { emptyList() }
 
@@ -668,7 +738,7 @@ private fun DragGhost(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Widget cards — no dragModifier param needed, drag is on the slot Box above
+// Widget cards — unchanged from original
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
