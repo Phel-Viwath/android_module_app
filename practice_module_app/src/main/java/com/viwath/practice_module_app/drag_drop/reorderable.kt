@@ -2,7 +2,6 @@ package com.viwath.practice_module_app.drag_drop
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -105,11 +104,11 @@ private fun rememberSlotAnimatable(
     }
 
     val previousIndex = remember(key) {
-        mutableStateOf(currentIndex)
+        mutableIntStateOf(currentIndex)
     }
 
     LaunchedEffect(key, currentIndex) {
-        val oldIndex = previousIndex.value
+        val oldIndex = previousIndex.intValue
 
         if (oldIndex != currentIndex) {
             val oldBounds = slotBounds[zone to oldIndex]
@@ -137,7 +136,7 @@ private fun rememberSlotAnimatable(
                 )
             }
 
-            previousIndex.value = currentIndex
+            previousIndex.intValue = currentIndex
         }
     }
 
@@ -145,6 +144,7 @@ private fun rememberSlotAnimatable(
 }
 
 
+@Suppress("DEPRECATION")
 @Composable
 fun QuickAccessMenuTestScreen(vm: QuickAccessTestViewModel = viewModel()) {
     val state by vm.state
@@ -241,6 +241,9 @@ fun QuickAccessMenuDragGrid(
 ) {
     val scope     = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
+    var isPagerTransitioning by remember {
+        mutableStateOf(false)
+    }
 
     val pagerState = rememberPagerState(pageCount = { moreWidgets.size.coerceAtLeast(1) })
     val morePage by remember { derivedStateOf { pagerState.currentPage } }
@@ -309,55 +312,39 @@ fun QuickAccessMenuDragGrid(
                 crossZoneHoverJob?.cancel()
 
                 crossZoneHoverJob = scope.launch {
-                    delay(350L) // ABA feeling delay
+                    delay(200L) // ABA feeling delay
 
                     val latest = dragState.dragging ?: return@launch
 
-                    when {
-                        latest.sourceZone == DragZone.PINNED &&
-                                targetZone == DragZone.MORE -> {
+                    when (latest.sourceZone) {
+                        DragZone.PINNED -> {
+                            if (targetZone == DragZone.MORE) {
+                                if (moreWidgets.getOrElse(morePage) { emptyList() }.size >= MORE_SIZE) {
+                                    onSwapPinnedToMore(latest.sourceIndex, targetIdx)
+                                } else {
+                                    onMovePinnedToMore(latest.sourceIndex)
+                                }
 
-                            if (moreWidgets
-                                    .getOrElse(morePage) { emptyList() }
-                                    .size >= MORE_SIZE
-                            ) {
-                                onSwapPinnedToMore(
-                                    latest.sourceIndex,
-                                    targetIdx
-                                )
-                            } else {
-                                onMovePinnedToMore(
-                                    latest.sourceIndex
+                                dragState.dragging = latest.copy(
+                                    sourceZone = DragZone.MORE,
+                                    sourceIndex = targetIdx
                                 )
                             }
-
-                            dragState.dragging = latest.copy(
-                                sourceZone = DragZone.MORE,
-                                sourceIndex = targetIdx
-                            )
                         }
 
-                        latest.sourceZone == DragZone.MORE &&
-                                targetZone == DragZone.PINNED -> {
+                        DragZone.MORE -> {
+                            if (targetZone == DragZone.PINNED) {
+                                if (pinnedWidgets.getOrNull(targetIdx)?.action == DUMMY) {
+                                    onMoveMoreToPinned(latest.sourceIndex)
+                                } else {
+                                    onSwapMoreToPinned(latest.sourceIndex, targetIdx)
+                                }
 
-                            if (pinnedWidgets
-                                    .getOrNull(targetIdx)
-                                    ?.action == DUMMY
-                            ) {
-                                onMoveMoreToPinned(
-                                    latest.sourceIndex
-                                )
-                            } else {
-                                onSwapMoreToPinned(
-                                    latest.sourceIndex,
-                                    targetIdx
+                                dragState.dragging = latest.copy(
+                                    sourceZone = DragZone.PINNED,
+                                    sourceIndex = targetIdx
                                 )
                             }
-
-                            dragState.dragging = latest.copy(
-                                sourceZone = DragZone.PINNED,
-                                sourceIndex = targetIdx
-                            )
                         }
                     }
                 }

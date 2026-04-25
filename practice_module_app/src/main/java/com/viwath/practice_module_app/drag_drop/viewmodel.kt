@@ -54,11 +54,7 @@ private val ALL_WIDGETS = listOf(
 
 // Drag zones for cross-zone dragging
 enum class DragZone { PINNED, MORE }
-enum class DragPhase {
-    IN_PINNED,     // started in Pinned, still hovering Pinned
-    CROSSING,      // left Pinned, hovering over More — placeholder shown in Pinned
-    IN_MORE        // started in More (or was committed after cross-zone swap)
-}
+
 // Extended DragInfo with phase tracking
 data class DragInfo(
     val widget: ActionWidget,
@@ -66,7 +62,6 @@ data class DragInfo(
     val sourceIndex: Int,       // current position in its zone
     val pinnedPlaceholderIndex: Int? = null,  // original Pinned index while crossing
     val fingerRootOffset: Offset = Offset.Zero,
-    val phase: DragPhase = DragPhase.IN_PINNED
 )
 
 class QuickAccessDragState {
