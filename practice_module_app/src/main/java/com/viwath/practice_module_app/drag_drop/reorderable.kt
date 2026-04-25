@@ -69,6 +69,8 @@ import com.viwath.practice_module_app.drag_drop.GridPops.DUMMY
 import com.viwath.practice_module_app.drag_drop.GridPops.MORE_COLS
 import com.viwath.practice_module_app.drag_drop.GridPops.MORE_SIZE
 import com.viwath.practice_module_app.drag_drop.GridPops.PINNED_COLS
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -77,55 +79,65 @@ import kotlin.math.roundToInt
 // Offset Animatable helper — tracks each widget's animated displacement
 // ─────────────────────────────────────────────────────────────────────────────
 
-private val OffsetVectorConverter = TwoWayConverter<Offset, AnimationVector2D>(
-    convertToVector = { AnimationVector2D(it.x, it.y) },
-    convertFromVector = { Offset(it.v1, it.v2) }
-)
+private val OffsetVectorConverter =
+    TwoWayConverter<Offset, AnimationVector2D>(
+        convertToVector = {
+            AnimationVector2D(it.x, it.y)
+        },
+        convertFromVector = {
+            Offset(it.v1, it.v2)
+        }
+    )
 
-/**
- * Returns an [Animatable<Offset>] for the given [key].
- * When [key] changes (item moved to a new slot), the animatable is seeded with
- * the *previous* slot's recorded bounds so it can spring back to zero from there.
- *
- * This is exactly what sh.calvin.reorderable does internally:
- *   1. Record where the item WAS (old bounds).
- *   2. Snap the animatable to (oldPos - newPos) — so the item visually stays put.
- *   3. Animate to Offset.Zero — the item slides into its new slot.
- */
 @Composable
 private fun rememberSlotAnimatable(
-    key: String,          // stable widget identity
+    key: String,
     slotBounds: Map<Pair<DragZone, Int>, Rect>,
     zone: DragZone,
     currentIndex: Int
 ): Animatable<Offset, AnimationVector2D> {
-    // Remember the last known slot index for this key so we can diff on recompose
-    val prevIndexRef = remember(key) { mutableStateOf(currentIndex) }
-    val animatable   = remember(key) { Animatable(Offset.Zero, OffsetVectorConverter) }
-    val scope        = rememberCoroutineScope()
 
-    // This runs whenever `currentIndex` changes for the same key
+    val animatable = remember(key) {
+        Animatable(
+            initialValue = Offset.Zero,
+            typeConverter = OffsetVectorConverter
+        )
+    }
+
+    val previousIndex = remember(key) {
+        mutableStateOf(currentIndex)
+    }
+
     LaunchedEffect(key, currentIndex) {
-        val prevIndex = prevIndexRef.value
-        if (prevIndex != currentIndex) {
-            val oldBounds = slotBounds[zone to prevIndex]
+        val oldIndex = previousIndex.value
+
+        if (oldIndex != currentIndex) {
+            val oldBounds = slotBounds[zone to oldIndex]
             val newBounds = slotBounds[zone to currentIndex]
+
             if (oldBounds != null && newBounds != null) {
-                val dx = oldBounds.left - newBounds.left
-                val dy = oldBounds.top  - newBounds.top
-                // Snap to where the item visually was, then spring to zero
-                animatable.snapTo(Offset(dx, dy))
-                scope.launch {
-                    animatable.animateTo(
-                        targetValue = Offset.Zero,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness    = Spring.StiffnessMedium
-                        )
+                val startOffset = Offset(
+                    x = oldBounds.left - newBounds.left,
+                    y = oldBounds.top - newBounds.top
+                )
+
+                // stop old animation first
+                animatable.stop()
+
+                // instantly keep old visual position
+                animatable.snapTo(startOffset)
+
+                // animate into new slot
+                animatable.animateTo(
+                    targetValue = Offset.Zero,
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = 1700f
                     )
-                }
+                )
             }
-            prevIndexRef.value = currentIndex
+
+            previousIndex.value = currentIndex
         }
     }
 
@@ -235,6 +247,10 @@ fun QuickAccessMenuDragGrid(
     var pagerRootBounds by remember { mutableStateOf<Rect?>(null) }
     var containerRootOffset by remember { mutableStateOf(Offset.Zero) }
 
+    var crossZoneHoverJob by remember {
+        mutableStateOf<Job?>(null)
+    }
+
     LaunchedEffect(moreWidgets.size) {
         if (pagerState.currentPage >= moreWidgets.size)
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
@@ -276,6 +292,77 @@ fun QuickAccessMenuDragGrid(
                         fingerRootOffset = rootOffset
                     )
                 }
+            }
+        }
+
+        dragState.dragging?.let { info ->
+
+            val hoveredCrossZone = dragState.slotBounds.entries
+                .firstOrNull { (key, rect) ->
+                    key.first != info.sourceZone &&
+                            rect.contains(rootOffset)
+                }
+
+            if (hoveredCrossZone != null) {
+                val (targetZone, targetIdx) = hoveredCrossZone.key
+
+                crossZoneHoverJob?.cancel()
+
+                crossZoneHoverJob = scope.launch {
+                    delay(350L) // ABA feeling delay
+
+                    val latest = dragState.dragging ?: return@launch
+
+                    when {
+                        latest.sourceZone == DragZone.PINNED &&
+                                targetZone == DragZone.MORE -> {
+
+                            if (moreWidgets
+                                    .getOrElse(morePage) { emptyList() }
+                                    .size >= MORE_SIZE
+                            ) {
+                                onSwapPinnedToMore(
+                                    latest.sourceIndex,
+                                    targetIdx
+                                )
+                            } else {
+                                onMovePinnedToMore(
+                                    latest.sourceIndex
+                                )
+                            }
+
+                            dragState.dragging = latest.copy(
+                                sourceZone = DragZone.MORE,
+                                sourceIndex = targetIdx
+                            )
+                        }
+
+                        latest.sourceZone == DragZone.MORE &&
+                                targetZone == DragZone.PINNED -> {
+
+                            if (pinnedWidgets
+                                    .getOrNull(targetIdx)
+                                    ?.action == DUMMY
+                            ) {
+                                onMoveMoreToPinned(
+                                    latest.sourceIndex
+                                )
+                            } else {
+                                onSwapMoreToPinned(
+                                    latest.sourceIndex,
+                                    targetIdx
+                                )
+                            }
+
+                            dragState.dragging = latest.copy(
+                                sourceZone = DragZone.PINNED,
+                                sourceIndex = targetIdx
+                            )
+                        }
+                    }
+                }
+            } else {
+                crossZoneHoverJob?.cancel()
             }
         }
 

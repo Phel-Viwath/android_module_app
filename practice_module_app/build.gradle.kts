@@ -95,5 +95,7 @@ dependencies {
 
     // Reorderable drag-and-drop
     implementation(libs.reorderable)
+
+    implementation("com.mohamedrejeb.dnd:compose-dnd:0.4.0")
 }
 
