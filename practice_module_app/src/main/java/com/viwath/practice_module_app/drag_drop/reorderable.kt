@@ -241,9 +241,6 @@ fun QuickAccessMenuDragGrid(
 ) {
     val scope     = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
-    var isPagerTransitioning by remember {
-        mutableStateOf(false)
-    }
 
     val pagerState = rememberPagerState(pageCount = { moreWidgets.size.coerceAtLeast(1) })
     val morePage by remember { derivedStateOf { pagerState.currentPage } }
@@ -259,6 +256,9 @@ fun QuickAccessMenuDragGrid(
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
     }
 
+    var isPagingDuringDrag by remember {
+        mutableStateOf(false)
+    }
     val onDragUpdate: (Offset) -> Unit = { rootOffset ->
         dragState.dragging = dragState.dragging?.copy(fingerRootOffset = rootOffset)
 
@@ -280,24 +280,30 @@ fun QuickAccessMenuDragGrid(
                 }
             }
 
+
             if (info.sourceZone == DragZone.MORE) {
                 val hovered = dragState.slotBounds.entries
                     .firstOrNull { (key, rect) ->
                         key.first == DragZone.MORE &&
-                                key.second != info.sourceIndex &&
                                 rect.contains(rootOffset)
                     }
+
                 if (hovered != null) {
                     val toIdx = hovered.key.second
-                    onMoveMore(info.sourceIndex, toIdx)
-                    dragState.dragging = info.copy(
-                        sourceIndex      = toIdx,
-                        fingerRootOffset = rootOffset
-                    )
+
+                    if (toIdx != info.sourceIndex) {
+                        onMoveMore(info.sourceIndex, toIdx)
+
+                        dragState.dragging = info.copy(
+                            sourceIndex = toIdx,
+                            fingerRootOffset = rootOffset
+                        )
+                    }
                 }
             }
         }
 
+        // drag cross
         dragState.dragging?.let { info ->
 
             val hoveredCrossZone = dragState.slotBounds.entries
@@ -312,7 +318,7 @@ fun QuickAccessMenuDragGrid(
                 crossZoneHoverJob?.cancel()
 
                 crossZoneHoverJob = scope.launch {
-                    delay(200L) // ABA feeling delay
+                    delay(300L) // ABA feeling delay
 
                     val latest = dragState.dragging ?: return@launch
 
@@ -674,10 +680,6 @@ fun QuickAccessMenuDragGrid(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Unified drag source — unchanged from original
-// ─────────────────────────────────────────────────────────────────────────────
-
 private fun Modifier.unifiedDragSource(
     zone: DragZone,
     slotIndex: Int,
@@ -701,14 +703,17 @@ private fun Modifier.unifiedDragSource(
             )
             onDragUpdate(rootOffset)
         },
-        onDrag = { change, _ ->
+        onDrag = { change, dragAmount ->
             change.consume()
-            val bounds = dragState.slotBounds[zone to slotIndex]
-            if (bounds != null) {
-                val rootOffset = Offset(
-                    x = bounds.left + change.position.x,
-                    y = bounds.top  + change.position.y
-                )
+
+            val info = dragState.dragging
+            if (info != null) {
+                val liveBounds = dragState.slotBounds[info.sourceZone to info.sourceIndex]
+                val rootOffset = if (liveBounds != null) {
+                    info.fingerRootOffset + dragAmount
+                } else {
+                    info.fingerRootOffset + dragAmount
+                }
                 onDragUpdate(rootOffset)
             }
         },

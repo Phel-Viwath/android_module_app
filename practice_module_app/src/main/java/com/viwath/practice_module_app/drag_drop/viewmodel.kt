@@ -208,6 +208,7 @@ class QuickAccessTestViewModel : ViewModel() {
 //        flat[to] = temp
         val flat = _state.value.moreWidgets.flatten().toMutableList()
         if (from !in flat.indices || to !in flat.indices) return
+        if (from == to) return
         val item = flat.removeAt(from)
         flat.add(to, item)
         updateState { it.copy(moreWidgets = flat.chunked(MORE_SIZE).ifEmpty { listOf(emptyList()) }) }
