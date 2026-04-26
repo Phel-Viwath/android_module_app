@@ -259,7 +259,6 @@ fun QuickAccessMenuDragGrid(
     val onDragUpdate: (Offset) -> Unit = { rootOffset ->
         dragState.dragging = dragState.dragging?.copy(fingerRootOffset = rootOffset)
 
-        // drag same zone
         dragState.dragging?.let { info ->
             if (info.sourceZone == DragZone.PINNED) {
                 val hovered = dragState.slotBounds.entries
@@ -303,7 +302,7 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        // drag cross zone
+        // drag cross
         dragState.dragging?.let { info ->
 
             val hoveredCrossZone = dragState.slotBounds.entries
@@ -361,35 +360,32 @@ fun QuickAccessMenuDragGrid(
         }
 
         // Auto-scroll pages when dragging near the HorizontalPager edges
+        // Only trigger if we're dragging a MORE widget (cross-zone drag)
         dragState.dragging?.let {
+            if (it.sourceZone != DragZone.MORE) return@let  // ← ADD THIS GUARD
+
             pagerRootBounds?.let { bounds ->
                 val relX = it.fingerRootOffset.x - bounds.left
-                val edge = bounds.width * 0.20f // Slightly wider edge for better UX
+                val edge = bounds.width * 0.20f
                 when {
                     relX < edge && morePage > 0 -> {
                         if (pagerState.isScrollInProgress.not()) {
                             scope.launch {
-                                // Clear MORE bounds of OTHER pages to be safe
                                 val keysToRemove = dragState.slotBounds.keys.filter { p ->
                                     p.first == DragZone.MORE && p.second / MORE_SIZE != morePage
                                 }
-                                keysToRemove.forEach { p ->
-                                    dragState.slotBounds.remove(p)
-                                }
+                                keysToRemove.forEach { p -> dragState.slotBounds.remove(p) }
                                 pagerState.animateScrollToPage(morePage - 1)
                             }
                         }
                     }
-
                     relX > bounds.width - edge && morePage < moreWidgets.size - 1 -> {
                         if (pagerState.isScrollInProgress.not()) {
                             scope.launch {
                                 val keysToRemove = dragState.slotBounds.keys.filter { p ->
                                     p.first == DragZone.MORE && p.second / MORE_SIZE != morePage
                                 }
-                                keysToRemove.forEach { p ->
-                                    dragState.slotBounds.remove(p)
-                                }
+                                keysToRemove.forEach { p -> dragState.slotBounds.remove(p) }
                                 pagerState.animateScrollToPage(morePage + 1)
                             }
                         }
