@@ -5,7 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.viwath.compose_ui_practice.ui.theme.Compose_ui_practiceTheme
-import com.viwath.practice_module_app.drag_drop.QuickAccessMenuTestScreen
+import com.viwath.practice_module_app.drag_drop.QuickAccessMenuDragGrid
+import com.viwath.practice_module_app.drag_drop.QuickAccessMenuScreen
 
 
 class MainActivity : ComponentActivity() {
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
                 //MenuScreen2()
                 //MenuScreen()
                 //MainMenuGrid()
-                QuickAccessMenuTestScreen()
+                QuickAccessMenuScreen()
             }
         }
     }
