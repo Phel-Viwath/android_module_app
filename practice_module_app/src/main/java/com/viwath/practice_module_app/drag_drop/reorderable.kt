@@ -239,7 +239,7 @@ fun QuickAccessMenuDragGrid(
     onMoveMoreToPinned: (Int) -> Unit,
     onSwapMoreToPinned: (Int, Int) -> Unit
 ) {
-    val scope     = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
 
     val pagerState = rememberPagerState(pageCount = { moreWidgets.size.coerceAtLeast(1) })
@@ -256,12 +256,10 @@ fun QuickAccessMenuDragGrid(
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
     }
 
-    var isPagingDuringDrag by remember {
-        mutableStateOf(false)
-    }
     val onDragUpdate: (Offset) -> Unit = { rootOffset ->
         dragState.dragging = dragState.dragging?.copy(fingerRootOffset = rootOffset)
 
+        // drag same zone
         dragState.dragging?.let { info ->
             if (info.sourceZone == DragZone.PINNED) {
                 val hovered = dragState.slotBounds.entries
@@ -274,7 +272,7 @@ fun QuickAccessMenuDragGrid(
                     val toIdx = hovered.key.second
                     onMovePinned(info.sourceIndex, toIdx)
                     dragState.dragging = info.copy(
-                        sourceIndex      = toIdx,
+                        sourceIndex = toIdx,
                         fingerRootOffset = rootOffset
                     )
                 }
@@ -282,10 +280,12 @@ fun QuickAccessMenuDragGrid(
 
 
             if (info.sourceZone == DragZone.MORE) {
+                // Determine if we are hovering over the CURRENT page's slots
                 val hovered = dragState.slotBounds.entries
                     .firstOrNull { (key, rect) ->
                         key.first == DragZone.MORE &&
-                                rect.contains(rootOffset)
+                                rect.contains(rootOffset) &&
+                                (key.second / MORE_SIZE == morePage) // ONLY allow reorder on current page
                     }
 
                 if (hovered != null) {
@@ -303,13 +303,14 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        // drag cross
+        // drag cross zone
         dragState.dragging?.let { info ->
 
             val hoveredCrossZone = dragState.slotBounds.entries
                 .firstOrNull { (key, rect) ->
                     key.first != info.sourceZone &&
-                            rect.contains(rootOffset)
+                            rect.contains(rootOffset) &&
+                            (key.first != DragZone.MORE || key.second / MORE_SIZE == morePage)
                 }
 
             if (hoveredCrossZone != null) {
@@ -359,15 +360,40 @@ fun QuickAccessMenuDragGrid(
             }
         }
 
-        pagerRootBounds?.let { bounds ->
-            if (rootOffset.y > bounds.top) {
-                val relX = rootOffset.x - bounds.left
-                val edge = bounds.width * 0.15f
+        // Auto-scroll pages when dragging near the HorizontalPager edges
+        dragState.dragging?.let {
+            pagerRootBounds?.let { bounds ->
+                val relX = it.fingerRootOffset.x - bounds.left
+                val edge = bounds.width * 0.20f // Slightly wider edge for better UX
                 when {
-                    relX < edge && morePage > 0 ->
-                        scope.launch { pagerState.animateScrollToPage(morePage - 1) }
-                    relX > bounds.width - edge && morePage < moreWidgets.size - 1 ->
-                        scope.launch { pagerState.animateScrollToPage(morePage + 1) }
+                    relX < edge && morePage > 0 -> {
+                        if (pagerState.isScrollInProgress.not()) {
+                            scope.launch {
+                                // Clear MORE bounds of OTHER pages to be safe
+                                val keysToRemove = dragState.slotBounds.keys.filter { p ->
+                                    p.first == DragZone.MORE && p.second / MORE_SIZE != morePage
+                                }
+                                keysToRemove.forEach { p ->
+                                    dragState.slotBounds.remove(p)
+                                }
+                                pagerState.animateScrollToPage(morePage - 1)
+                            }
+                        }
+                    }
+
+                    relX > bounds.width - edge && morePage < moreWidgets.size - 1 -> {
+                        if (pagerState.isScrollInProgress.not()) {
+                            scope.launch {
+                                val keysToRemove = dragState.slotBounds.keys.filter { p ->
+                                    p.first == DragZone.MORE && p.second / MORE_SIZE != morePage
+                                }
+                                keysToRemove.forEach { p ->
+                                    dragState.slotBounds.remove(p)
+                                }
+                                pagerState.animateScrollToPage(morePage + 1)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -375,11 +401,11 @@ fun QuickAccessMenuDragGrid(
 
     val onDragEnd: (Offset) -> Unit = { fingerOffset ->
         resolveDropOnEnd(
-            fingerOffset       = fingerOffset,
-            dragState          = dragState,
-            morePage           = morePage,
-            moreWidgets        = moreWidgets,
-            pinnedWidgets      = pinnedWidgets,
+            fingerOffset = fingerOffset,
+            dragState = dragState,
+            morePage = morePage,
+            moreWidgets = moreWidgets,
+            pinnedWidgets = pinnedWidgets,
             onMovePinnedToMore = onMovePinnedToMore,
             onSwapPinnedToMore = onSwapPinnedToMore,
             onMoveMoreToPinned = onMoveMoreToPinned,
@@ -392,6 +418,45 @@ fun QuickAccessMenuDragGrid(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { containerRootOffset = it.boundsInRoot().topLeft }
+            .then(
+                if (isEditMode) {
+                    Modifier.pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { localOffset ->
+                                val rootOffset = localOffset + containerRootOffset
+                                // Find which item was hit
+                                val hit = dragState.slotBounds.entries.firstOrNull {
+                                    it.value.contains(rootOffset)
+                                }
+                                if (hit != null) {
+                                    val (zone, index) = hit.key
+                                    val widget = when (zone) {
+                                        DragZone.PINNED -> pinnedWidgets.getOrNull(index)
+                                        DragZone.MORE -> moreWidgets.flatten().getOrNull(index)
+                                    }
+                                    if (widget != null && widget.action != DUMMY) {
+                                        dragState.dragging = DragInfo(
+                                            widget = widget,
+                                            sourceZone = zone,
+                                            sourceIndex = index,
+                                            fingerRootOffset = rootOffset
+                                        )
+                                        onDragUpdate(rootOffset)
+                                    }
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragState.dragging?.let {
+                                    onDragUpdate(it.fingerRootOffset + dragAmount)
+                                }
+                            },
+                            onDragEnd = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) },
+                            onDragCancel = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) }
+                        )
+                    }
+                } else Modifier
+            )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
 
@@ -475,18 +540,6 @@ fun QuickAccessMenuDragGrid(
                                             if (isDropTarget) Modifier
                                                 .clip(RoundedCornerShape(12.dp))
                                                 .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
-                                            else Modifier
-                                        )
-                                        .then(
-                                            if (isEditMode && widget.action != DUMMY)
-                                                Modifier.unifiedDragSource(
-                                                    zone         = DragZone.PINNED,
-                                                    slotIndex    = index,
-                                                    widget       = widget,
-                                                    dragState    = dragState,
-                                                    onDragUpdate = onDragUpdate,
-                                                    onDragEnd    = onDragEnd
-                                                )
                                             else Modifier
                                         )
                                 ) {
@@ -607,18 +660,6 @@ fun QuickAccessMenuDragGrid(
                                                     .background(Color(0xFFE84C1E).copy(alpha = 0.18f))
                                                 else Modifier
                                             )
-                                            .then(
-                                                if (isEditMode)
-                                                    Modifier.unifiedDragSource(
-                                                        zone         = DragZone.MORE,
-                                                        slotIndex    = flatIdx,
-                                                        widget       = widget,
-                                                        dragState    = dragState,
-                                                        onDragUpdate = onDragUpdate,
-                                                        onDragEnd    = onDragEnd
-                                                    )
-                                                else Modifier
-                                            )
                                     ) {
                                         MoreWidgetCard(
                                             widget      = widget,
@@ -678,48 +719,6 @@ fun QuickAccessMenuDragGrid(
             )
         }
     }
-}
-
-private fun Modifier.unifiedDragSource(
-    zone: DragZone,
-    slotIndex: Int,
-    widget: ActionWidget,
-    dragState: QuickAccessDragState,
-    onDragUpdate: (Offset) -> Unit,
-    onDragEnd: (Offset) -> Unit
-): Modifier = this.pointerInput(zone, slotIndex) {
-    detectDragGesturesAfterLongPress(
-        onDragStart = { localOffset ->
-            val bounds = dragState.slotBounds[zone to slotIndex]
-            val rootOffset = if (bounds != null)
-                Offset(bounds.left + localOffset.x, bounds.top + localOffset.y)
-            else localOffset
-
-            dragState.dragging = DragInfo(
-                widget           = widget,
-                sourceZone       = zone,
-                sourceIndex      = slotIndex,
-                fingerRootOffset = rootOffset
-            )
-            onDragUpdate(rootOffset)
-        },
-        onDrag = { change, dragAmount ->
-            change.consume()
-
-            val info = dragState.dragging
-            if (info != null) {
-                val liveBounds = dragState.slotBounds[info.sourceZone to info.sourceIndex]
-                val rootOffset = if (liveBounds != null) {
-                    info.fingerRootOffset + dragAmount
-                } else {
-                    info.fingerRootOffset + dragAmount
-                }
-                onDragUpdate(rootOffset)
-            }
-        },
-        onDragEnd    = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) },
-        onDragCancel = { onDragEnd(dragState.dragging?.fingerRootOffset ?: Offset.Zero) }
-    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
