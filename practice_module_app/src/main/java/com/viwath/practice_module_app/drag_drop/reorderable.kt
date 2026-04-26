@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,8 +115,15 @@ fun QuickAccessMenuDragGrid(
     onMoveMoreToPinned: (moreIdx: Int) -> Unit,
     onSwapMoreToPinned: (moreIdx: Int, pinnedIdx: Int) -> Unit,
 ) {
-    val scope    = rememberCoroutineScope()
+    val scope     = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
+
+    // rememberUpdatedState — the pointerInput block uses key=Unit so it never
+    // restarts, meaning its lambda captures a stale closure. These refs always
+    // point to the latest list so onDragStart reads the correct widget even
+    // after reorders have shuffled the indices.
+    val currentPinned by rememberUpdatedState(pinnedWidgets)
+    val currentMore   by rememberUpdatedState(moreWidgets)
 
     val pagerState = rememberPagerState(pageCount = { moreWidgets.size.coerceAtLeast(1) })
     val morePage by remember { derivedStateOf { pagerState.currentPage } }
@@ -304,8 +312,8 @@ fun QuickAccessMenuDragGrid(
                         val hit = dragState.hitTest(rootOffset) ?: return@detectDragGesturesAfterLongPress
                         val (zone, index) = hit
                         val widget = when (zone) {
-                            DragZone.PINNED -> pinnedWidgets.getOrNull(index)
-                            DragZone.MORE   -> moreWidgets.flatten().getOrNull(index)
+                            DragZone.PINNED -> currentPinned.getOrNull(index)
+                            DragZone.MORE   -> currentMore.flatten().getOrNull(index)
                         }
                         // Don't allow dragging dummy/empty slots
                         if (widget != null && widget.action != DUMMY) {
@@ -643,7 +651,7 @@ private fun DragGhost(
             .offset { IntOffset(localX.roundToInt(), localY.roundToInt()) }
             .size(ghostSizeDp)
             .zIndex(99f)
-            .graphicsLayer { scaleX = 1.12f; scaleY = 1.12f; alpha = 0.93f }
+            .graphicsLayer { alpha = 0.93f }
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center,

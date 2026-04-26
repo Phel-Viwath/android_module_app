@@ -39,11 +39,11 @@ private val ALL_WIDGETS = listOf(
     ActionWidget("SUPPORT",   "Support",   "🎧"),
     ActionWidget("EXCHANGE",  "Exchange",  "🔄"),
     ActionWidget("DEPOSIT",   "Deposit",   "💰"),
-    ActionWidget("WITHDRAW",  "Withdraw",  "🏧"),
-    ActionWidget("GAME",      "Game",      "🎮"),
-    ActionWidget("MUSIC",     "Music",     "🎵"),
-    ActionWidget("CAMERA",    "Camera",    "📷"),
-    ActionWidget("MAPS",      "Maps",      "🗺️"),
+//    ActionWidget("WITHDRAW",  "Withdraw",  "🏧"),
+//    ActionWidget("GAME",      "Game",      "🎮"),
+//    ActionWidget("MUSIC",     "Music",     "🎵"),
+//    ActionWidget("CAMERA",    "Camera",    "📷"),
+//    ActionWidget("MAPS",      "Maps",      "🗺️"),
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,21 +77,32 @@ class QuickAccessViewModel : ViewModel() {
     }
 
     // ── Intra-zone reorder ────────────────────────────────────────────────────
+// In QuickAccessViewModel.kt
 
     fun movePinned(from: Int, to: Int) {
         val pinned = _state.value.pinnedWidgets.toMutableList()
-        if (from !in pinned.indices || to !in pinned.indices) return
+        if (from !in pinned.indices || to !in pinned.indices || from == to) return
+
+        // Standard reorder logic: Pull out and insert
         val item = pinned.removeAt(from)
         pinned.add(to, item)
-        update { it.copy(pinnedWidgets = pinned) }
+
+        // We must update the ordering property so it matches the new index
+        val updatedList = pinned.mapIndexed { index, widget ->
+            widget.copy(ordering = index)
+        }
+
+        update { it.copy(pinnedWidgets = updatedList) }
     }
 
     fun moveMore(from: Int, to: Int) {
         val flat = _state.value.moreWidgets.flatten().toMutableList()
         if (from !in flat.indices || to !in flat.indices || from == to) return
+
         val item = flat.removeAt(from)
         flat.add(to, item)
-        update { it.copy(moreWidgets = flat.chunked(MORE_SIZE).ifEmpty { listOf(emptyList()) }) }
+
+        update { it.copy(moreWidgets = flat.chunked(MORE_SIZE)) }
     }
 
     // ── Cross-zone moves ──────────────────────────────────────────────────────

@@ -6,10 +6,10 @@ import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
@@ -22,7 +22,7 @@ import androidx.compose.ui.geometry.Rect
 enum class DragZone { PINNED, MORE }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Drag info — what is being dragged and where
+// Drag info
 // ─────────────────────────────────────────────────────────────────────────────
 
 data class DragInfo(
@@ -32,23 +32,28 @@ data class DragInfo(
     val fingerRootOffset: Offset = Offset.Zero,
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared drag state — holds the active drag and all slot bounds
-// Reusable: any grid that needs long-press drag can hold one of these
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 class QuickAccessDragState {
     var dragging by mutableStateOf<DragInfo?>(null)
 
-    /** Maps (zone, flatIndex) → screen Rect, updated by onGloballyPositioned */
+    /** Current (zone, index) → screen rect. Refreshed every frame by onGloballyPositioned. */
     val slotBounds = mutableStateMapOf<Pair<DragZone, Int>, Rect>()
+
+    /**
+     * widgetKey → rect captured RIGHT BEFORE a reorder fires.
+     * Every displaced widget uses this as its animation start point.
+     */
+    val widgetPreMoveRect = HashMap<String, Rect>()
+
+    // ── Drag lifecycle ────────────────────────────────────────────────────────
 
     fun startDrag(widget: ActionWidget, zone: DragZone, index: Int, rootOffset: Offset) {
         dragging = DragInfo(
-            widget            = widget,
-            sourceZone        = zone,
-            sourceIndex       = index,
-            fingerRootOffset  = rootOffset,
+            widget           = widget,
+            sourceZone       = zone,
+            sourceIndex      = index,
+            fingerRootOffset = rootOffset,
         )
     }
 
@@ -60,22 +65,29 @@ class QuickAccessDragState {
         dragging = dragging?.copy(sourceZone = zone, sourceIndex = index)
     }
 
-    fun endDrag() {
-        dragging = null
-    }
+    fun endDrag() { dragging = null }
 
-    /** Returns the slot (zone, index) whose bounds contain [point], or null. */
+    // ── Hit testing ───────────────────────────────────────────────────────────
+
     fun hitTest(point: Offset): Pair<DragZone, Int>? =
         slotBounds.entries.firstOrNull { it.value.contains(point) }?.key
 
-    /** Returns all slot keys matching the predicate. */
     fun slotsWhere(predicate: (Pair<DragZone, Int>) -> Boolean): List<Pair<DragZone, Int>> =
         slotBounds.keys.filter(predicate)
+
+    // ── Pre-move snapshot ─────────────────────────────────────────────────────
+
+    fun snapshotForReorder(widgetAtSlot: Map<Pair<DragZone, Int>, String>) {
+        widgetPreMoveRect.clear()
+        for ((slotKey, widgetKey) in widgetAtSlot) {
+            val rect = slotBounds[slotKey] ?: continue
+            widgetPreMoveRect[widgetKey] = rect
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Offset ↔ AnimationVector2D converter
-// Reusable for any Animatable<Offset, …> usage
+// Offset ↔ AnimationVector2D
 // ─────────────────────────────────────────────────────────────────────────────
 
 val OffsetVectorConverter = TwoWayConverter<Offset, AnimationVector2D>(
@@ -83,11 +95,6 @@ val OffsetVectorConverter = TwoWayConverter<Offset, AnimationVector2D>(
     convertFromVector = { Offset(it.v1, it.v2) }
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// rememberSlotAnimatable
-// Reusable: give it a stable key (widget identity), and it animates the widget
-// from its old slot position to its new one whenever currentIndex changes.
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun rememberSlotAnimatable(
@@ -96,34 +103,40 @@ fun rememberSlotAnimatable(
     zone: DragZone,
     currentIndex: Int,
 ): Animatable<Offset, AnimationVector2D> {
-
     val animatable = remember(key) {
         Animatable(initialValue = Offset.Zero, typeConverter = OffsetVectorConverter)
     }
+
+    // Crucial: Track the index this specific widget held in the last frame
     val previousIndex = remember(key) { mutableIntStateOf(currentIndex) }
 
-    LaunchedEffect(key, currentIndex) {
-        val oldIndex = previousIndex.intValue
-        if (oldIndex != currentIndex) {
-            val oldBounds = slotBounds[zone to oldIndex]
+    LaunchedEffect(currentIndex) {
+        val oldIdx = previousIndex.intValue
+
+        // If the index changed, it means another item was inserted before/after it
+        if (oldIdx != currentIndex) {
+            val oldBounds = slotBounds[zone to oldIdx]
             val newBounds = slotBounds[zone to currentIndex]
 
             if (oldBounds != null && newBounds != null) {
+                // Calculate the distance between the old slot and the new slot
+                val deltaX = oldBounds.left - newBounds.left
+                val deltaY = oldBounds.top - newBounds.top
+
                 animatable.stop()
-                animatable.snapTo(
-                    Offset(
-                        x = oldBounds.left - newBounds.left,
-                        y = oldBounds.top  - newBounds.top,
-                    )
-                )
+                // Snap to the physical location of the OLD slot
+                animatable.snapTo(Offset(deltaX, deltaY))
+                // Animate "back" to the NEW slot (which is Offset.Zero)
                 animatable.animateTo(
-                    targetValue   = Offset.Zero,
-                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 1700f)
+                    targetValue = Offset.Zero,
+                    animationSpec = spring(
+                        dampingRatio = 0.85f,
+                        stiffness = 600f // Adjust for "snappiness"
+                    )
                 )
             }
             previousIndex.intValue = currentIndex
         }
     }
-
     return animatable
 }
