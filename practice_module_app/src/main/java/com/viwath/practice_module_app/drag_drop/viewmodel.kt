@@ -39,11 +39,6 @@ private val ALL_WIDGETS = listOf(
     ActionWidget("SUPPORT",   "Support",   "🎧"),
     ActionWidget("EXCHANGE",  "Exchange",  "🔄"),
     ActionWidget("DEPOSIT",   "Deposit",   "💰"),
-//    ActionWidget("WITHDRAW",  "Withdraw",  "🏧"),
-//    ActionWidget("GAME",      "Game",      "🎮"),
-//    ActionWidget("MUSIC",     "Music",     "🎵"),
-//    ActionWidget("CAMERA",    "Camera",    "📷"),
-//    ActionWidget("MAPS",      "Maps",      "🗺️"),
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
