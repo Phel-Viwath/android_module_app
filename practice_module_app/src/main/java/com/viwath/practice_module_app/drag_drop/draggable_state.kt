@@ -6,7 +6,6 @@ import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -32,19 +31,12 @@ data class DragInfo(
     val fingerRootOffset: Offset = Offset.Zero,
 )
 
-
-
 class QuickAccessDragState {
     var dragging by mutableStateOf<DragInfo?>(null)
 
-    /** Current (zone, index) → screen rect. Refreshed every frame by onGloballyPositioned. */
     val slotBounds = mutableStateMapOf<Pair<DragZone, Int>, Rect>()
 
-    /**
-     * widgetKey → rect captured RIGHT BEFORE a reorder fires.
-     * Every displaced widget uses this as its animation start point.
-     */
-    val widgetPreMoveRect = HashMap<String, Rect>()
+    val widgetLastRect = HashMap<String, Rect>()
 
     // ── Drag lifecycle ────────────────────────────────────────────────────────
 
@@ -74,16 +66,6 @@ class QuickAccessDragState {
 
     fun slotsWhere(predicate: (Pair<DragZone, Int>) -> Boolean): List<Pair<DragZone, Int>> =
         slotBounds.keys.filter(predicate)
-
-    // ── Pre-move snapshot ─────────────────────────────────────────────────────
-
-    fun snapshotForReorder(widgetAtSlot: Map<Pair<DragZone, Int>, String>) {
-        widgetPreMoveRect.clear()
-        for ((slotKey, widgetKey) in widgetAtSlot) {
-            val rect = slotBounds[slotKey] ?: continue
-            widgetPreMoveRect[widgetKey] = rect
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,11 +77,10 @@ val OffsetVectorConverter = TwoWayConverter<Offset, AnimationVector2D>(
     convertFromVector = { Offset(it.v1, it.v2) }
 )
 
-
 @Composable
 fun rememberSlotAnimatable(
     key: String,
-    slotBounds: Map<Pair<DragZone, Int>, Rect>,
+    dragState: QuickAccessDragState,
     zone: DragZone,
     currentIndex: Int,
 ): Animatable<Offset, AnimationVector2D> {
@@ -107,36 +88,45 @@ fun rememberSlotAnimatable(
         Animatable(initialValue = Offset.Zero, typeConverter = OffsetVectorConverter)
     }
 
-    // Crucial: Track the index this specific widget held in the last frame
-    val previousIndex = remember(key) { mutableIntStateOf(currentIndex) }
+    val currentBounds = dragState.slotBounds[zone to currentIndex]
 
-    LaunchedEffect(currentIndex) {
-        val oldIdx = previousIndex.intValue
+    LaunchedEffect(key, currentIndex, currentBounds) {
+        if (currentBounds == null) return@LaunchedEffect
 
-        // If the index changed, it means another item was inserted before/after it
-        if (oldIdx != currentIndex) {
-            val oldBounds = slotBounds[zone to oldIdx]
-            val newBounds = slotBounds[zone to currentIndex]
+        val previousRect = dragState.widgetLastRect[key]
 
-            if (oldBounds != null && newBounds != null) {
-                // Calculate the distance between the old slot and the new slot
-                val deltaX = oldBounds.left - newBounds.left
-                val deltaY = oldBounds.top - newBounds.top
+        // First-ever record for this widget — no animation, just remember it.
+        if (previousRect == null) {
+            dragState.widgetLastRect[key] = currentBounds
+            return@LaunchedEffect
+        }
 
-                animatable.stop()
-                // Snap to the physical location of the OLD slot
-                animatable.snapTo(Offset(deltaX, deltaY))
-                // Animate "back" to the NEW slot (which is Offset.Zero)
-                animatable.animateTo(
-                    targetValue = Offset.Zero,
-                    animationSpec = spring(
-                        dampingRatio = 0.85f,
-                        stiffness = 600f // Adjust for "snappiness"
-                    )
+        // Same physical position — nothing to animate.
+        if (previousRect == currentBounds) return@LaunchedEffect
+
+        // Compute the jump.
+        val deltaX = previousRect.left - currentBounds.left
+        val deltaY = previousRect.top  - currentBounds.top
+
+        // Persist new resting rect BEFORE animating so a follow-up reorder
+        // mid-animation reads the correct base.
+        dragState.widgetLastRect[key] = currentBounds
+
+        // If a previous animation hasn't finished, fold its current visual
+        // offset into the start so we keep moving smoothly instead of jumping.
+        val startOffset = Offset(deltaX, deltaY) + animatable.value
+
+        if (startOffset.getDistance() > 0.5f) {
+            animatable.snapTo(startOffset)
+            animatable.animateTo(
+                targetValue = Offset.Zero,
+                animationSpec = spring(
+                    dampingRatio = 0.8f,
+                    stiffness    = 350f,
                 )
-            }
-            previousIndex.intValue = currentIndex
+            )
         }
     }
+
     return animatable
 }

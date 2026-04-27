@@ -118,10 +118,6 @@ fun QuickAccessMenuDragGrid(
     val scope     = rememberCoroutineScope()
     val dragState = remember { QuickAccessDragState() }
 
-    // rememberUpdatedState — the pointerInput block uses key=Unit so it never
-    // restarts, meaning its lambda captures a stale closure. These refs always
-    // point to the latest list so onDragStart reads the correct widget even
-    // after reorders have shuffled the indices.
     val currentPinned by rememberUpdatedState(pinnedWidgets)
     val currentMore   by rememberUpdatedState(moreWidgets)
 
@@ -131,9 +127,6 @@ fun QuickAccessMenuDragGrid(
     var pagerRootBounds       by remember { mutableStateOf<Rect?>(null) }
     var containerRootOffset   by remember { mutableStateOf(Offset.Zero) }
     var crossZoneHoverJob     by remember { mutableStateOf<Job?>(null) }
-    // Tracks which (zone, index) slot the pending cross-zone job is targeting.
-    // Prevents the 300ms delay from resetting on every drag-move event when the
-    // finger hasn't actually moved to a different slot.
     var crossZoneHoverTarget  by remember { mutableStateOf<Pair<DragZone, Int>?>(null) }
 
     // Clamp pager page if moreWidgets shrinks
@@ -141,8 +134,6 @@ fun QuickAccessMenuDragGrid(
         if (pagerState.currentPage >= moreWidgets.size)
             pagerState.animateScrollToPage((moreWidgets.size - 1).coerceAtLeast(0))
     }
-
-    // ── Intra-zone hover reorder ──────────────────────────────────────────────
 
     fun handleIntraZoneHover(rootOffset: Offset) {
         val info = dragState.dragging ?: return
@@ -175,13 +166,6 @@ fun QuickAccessMenuDragGrid(
         }
     }
 
-    // ── Cross-zone hover (delayed to avoid ABA flicker) ───────────────────────
-    //
-    // Key fix: we only launch a new job when the finger moves to a *different*
-    // target slot. If the finger is still over the same slot the job is already
-    // counting down for, we leave it alone — previously we cancelled+restarted
-    // it on every single drag-move event, so the 300ms countdown never elapsed
-    // and the swap never fired.
 
     fun handleCrossZoneHover(rootOffset: Offset) {
         val info = dragState.dragging ?: return
@@ -234,22 +218,12 @@ fun QuickAccessMenuDragGrid(
         }
     }
 
-    // ── Auto-scroll pager edges ───────────────────────────────────────────────
-    //
-    // Allowed for ANY drag (PINNED or MORE) as long as the finger is physically
-    // inside the pager's screen bounds. This lets a pinned widget be dragged
-    // across to a different MORE page.
-    //
-    // The previous guard `if (sourceZone != MORE) return` was too broad — it
-    // prevented pinned-to-More cross-page drags entirely. The correct guard is
-    // purely spatial: if the finger isn't over the pager, don't scroll.
 
     fun handlePagerAutoScroll(rootOffset: Offset) {
         if (dragState.dragging == null) return
 
         val bounds = pagerRootBounds ?: return
 
-        // Only scroll when the finger is actually hovering over the pager area
         if (!bounds.contains(rootOffset)) return
 
         val relX = rootOffset.x - bounds.left
@@ -334,7 +308,7 @@ fun QuickAccessMenuDragGrid(
 
             // ── Pinned header ─────────────────────────────────────────────────
             Text(
-                text       = "📌  Pinned",
+                text  = "📌  Pinned",
                 color      = Color.White,
                 fontSize   = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -483,7 +457,7 @@ private fun PinnedGrid(
 
                         val posAnim = rememberSlotAnimatable(
                             key          = widget.action,
-                            slotBounds   = dragState.slotBounds,
+                            dragState    = dragState,
                             zone         = DragZone.PINNED,
                             currentIndex = index,
                         )
@@ -557,7 +531,7 @@ private fun MoreGrid(
 
                         val posAnim = rememberSlotAnimatable(
                             key          = widget.action,
-                            slotBounds   = dragState.slotBounds,
+                            dragState    = dragState,
                             zone         = DragZone.MORE,
                             currentIndex = flatIdx,
                         )
